@@ -19,7 +19,7 @@ class Model(nn.Module):
 
 
     def reparameterization(self, mean, var):
-        epsilon = torch.randn_like(var).to(DEVICE)  # sampling epsilon
+        epsilon = torch.randn_like(var) # sampling epsilon
         var_up = self.variance_upsample(var)
         z = mean + var_up * epsilon  # reparameterization trick
         return z
@@ -29,4 +29,4 @@ class Model(nn.Module):
         var = torch.exp(log_var)
         z_sample = self.reparameterization(mu, var)
         decoded = self.decoder(z_sample)
-        return mu, var, z_sample, decoded
+        return mu, log_var, decoded
