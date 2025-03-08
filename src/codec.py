@@ -52,12 +52,12 @@ class Encoder(nn.Module):
             sequence.append(pooling_layer)
         self.sequence = nn.Sequential(*sequence)
         self.mean_activation = nn.Tanh()
-        self.std_normalization = nn.BatchNorm2d(ch)
         self.std_pooling = nn.AdaptiveAvgPool2d(1)
+        self.std_normalization = nn.BatchNorm2d(ch)
 
     def forward(self, input_x):
         layered_result = self.sequence(input_x)
         mean = self.mean_activation(layered_result)
-        std_1 = self.std_normalization(layered_result)
-        std = self.std_pooling(std_1)
-        return mean, std
+        std_1 = self.std_pooling(layered_result)
+        log_var = self.std_normalization(layered_result)
+        return mean, log_var
