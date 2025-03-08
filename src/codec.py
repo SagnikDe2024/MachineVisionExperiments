@@ -6,13 +6,14 @@ class Decoder(nn.Module):
         super().__init__()
         (ch, size) = latent_size
         (ch_o, size_out) = output_size
-        upscale_ratio = (size_out / size) ** (1 / layers)
+        lat_size_upscale = (size_out / size) ** (1 / layers)
+        channel_downscale = (ch_o / ch) ** (1 / layers)
         k_1 = kernel_size - 1
         sequence = nn.Sequential()
         for layer in range(layers):
-            size = size * upscale_ratio ** (layer + 1)
-            ch_in = ch / (upscale_ratio ** layer)
-            ch_next = ch / (upscale_ratio ** (layer + 1))
+            size = size * lat_size_upscale ** (layer + 1)
+            ch_in = ch * (channel_downscale ** layer)
+            ch_next = ch * (channel_downscale ** (layer + 1))
             upsample_layer = nn.UpsamplingBilinear2d(size=(size + k_1, size + k_1))
             sequence.append(upsample_layer)
             if layer < layers - 1:
@@ -38,11 +39,12 @@ class Encoder(nn.Module):
         (ch, size) = latent_size
         (ch_inp, size_in) = input_size
         downscale_ratio = (size / size_in) ** (1 / layers)
+        channel_upscale = (ch / ch_inp) ** (1 / layers)
         padding = kernel_size // 2
         sequence = nn.Sequential()
         ch_in = 3
         for layer in range(layers):
-            ch_next = ch / (downscale_ratio ** (layers - layer))
+            ch_next = ch_inp * (channel_upscale ** layer)
             conv_layer = nn.Conv2d(ch_in, ch_next, kernel_size, padding=padding)
             activation_layer = nn.Mish()
             pooling_layer = nn.FractionalMaxPool2d(kernel_size, downscale_ratio)
