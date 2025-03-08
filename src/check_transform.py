@@ -2,10 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torchvision.io import decode_image, ImageReadMode, write_jpeg, write_png
-from torchvision.transforms import v2
-from torchvision.transforms.functional import resize, rotate, InterpolationMode, crop
-
-from src.DiffuseForwardPass import calculate_pdf, convert_rgb_to_complex, convert_complex_to_rgb, find_complex_diff
+from torchvision.transforms.v2.functional import pad_image, rotate, InterpolationMode, crop
 
 below = 0.01
 
@@ -114,20 +111,46 @@ if __name__ == '__main__':
     # result = gen_fourier_image(512,np.pi/6)
     # print(result)
     img = decode_image("../data/normal_pic.jpg", mode=ImageReadMode.RGB)
-    img = crop(img,470,244 ,  17,23)
-    # img = torch.randint(0,255,(1,960, 1440))
-    img = rotate(img,45,InterpolationMode.BILINEAR)
-    # img = resize(img,[256,256])
-    complex_image = convert_rgb_to_complex(img)
-    undiff_complex = convert_complex_to_rgb(complex_image).squeeze(0)
-    write_png(undiff_complex.to(dtype=torch.uint8), "../out/complex_crop.png")
-    diff = find_complex_diff(complex_image)
-    diff_abs_max = diff.abs().max()
-    diff_scaled = diff*255 / diff_abs_max
-    rgb_image = convert_complex_to_rgb(diff_scaled).squeeze(0)
-    # rgb_rotated_back = rotate(rgb_image,-45,InterpolationMode.BILINEAR)
+    img = img.to(dtype=torch.float32)
+    img = img/255
+    crop_size = 256
+    padding = crop_size//4
+    img = crop(img,400,1244 ,  crop_size,crop_size)
+    increased_img = pad_image(img,padding=padding)
 
-    write_png(rgb_image.to(dtype=torch.uint8), "../out/complex_pipe_max_crop.png")
+    increased_img_45 = rotate(increased_img,45,InterpolationMode.BILINEAR)
+    increased_img_135 = rotate(increased_img,-45,InterpolationMode.BILINEAR)
+    rot_x_diff = torch.diff(increased_img_45,dim=2)
+    rot_y_diff = torch.diff(increased_img_135,dim=2)
+
+    x_diff = rotate(rot_x_diff,-45,InterpolationMode.BILINEAR)
+    y_diff = rotate(rot_y_diff,45,InterpolationMode.BILINEAR)
+    x_diff_abs = torch.abs(x_diff)
+    y_diff_abs = torch.abs(y_diff)
+    max_diff = (x_diff_abs + y_diff_abs - 2*(x_diff_abs*y_diff_abs))/(2-x_diff_abs-y_diff_abs)
+    cropped_diff = crop(max_diff,padding-1,padding-1, crop_size+2,crop_size+2)*255
+
+
+
+
+
+
+
+
+
+
+    # img = rotate(img,45,InterpolationMode.BILINEAR)
+    # # img = resize(img,[256,256])
+    # complex_image = convert_rgb_to_complex(img)
+    # undiff_complex = convert_complex_to_rgb(complex_image).squeeze(0)
+    # write_png(undiff_complex.to(dtype=torch.uint8), "../out/complex_crop.png")
+    # diff = find_complex_diff(complex_image)
+    # diff_abs_max = diff.abs().max()
+    # diff_scaled = diff*255 / diff_abs_max
+    # rgb_image = convert_complex_to_rgb(diff_scaled).squeeze(0)
+    # # rgb_rotated_back = rotate(rgb_image,-45,InterpolationMode.BILINEAR)
+
+    write_png(cropped_diff.to(dtype=torch.uint8), "../out/complex_pipe_max_crop.png")
 
 
 
