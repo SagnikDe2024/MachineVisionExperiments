@@ -11,10 +11,10 @@ class Decoder(nn.Module):
         k_1 = kernel_size - 1
         sequence = nn.Sequential()
         for layer in range(layers):
-            size = size * lat_size_upscale ** (layer + 1)
-            ch_in = ch * (channel_downscale ** layer)
-            ch_next = ch * (channel_downscale ** (layer + 1))
-            upsample_layer = nn.UpsamplingBilinear2d(size=(size + k_1, size + k_1))
+            up_size = int(size * lat_size_upscale ** (layer + 1))
+            ch_in = int(ch * (channel_downscale ** layer))
+            ch_next = int(ch * (channel_downscale ** (layer + 1)))
+            upsample_layer = nn.UpsamplingBilinear2d(size=(up_size + k_1, up_size + k_1))
             sequence.append(upsample_layer)
             if layer < layers - 1:
                 conv_layer = nn.Conv2d(ch_in, ch_next, kernel_size)
@@ -44,7 +44,7 @@ class Encoder(nn.Module):
         sequence = nn.Sequential()
         ch_in = 3
         for layer in range(layers):
-            ch_next = ch_inp * (channel_upscale ** layer)
+            ch_next = int(ch_inp * (channel_upscale ** layer))
             conv_layer = nn.Conv2d(ch_in, ch_next, kernel_size, padding=padding)
             activation_layer = nn.Mish()
             pooling_layer = nn.FractionalMaxPool2d(kernel_size, downscale_ratio)
@@ -61,5 +61,5 @@ class Encoder(nn.Module):
         layered_result = self.sequence(input_x)
         mean = self.mean_activation(layered_result)
         std_1 = self.std_pooling(layered_result)
-        log_var = self.std_normalization(layered_result)
+        log_var = self.std_normalization(std_1)
         return mean, log_var
