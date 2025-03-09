@@ -2,18 +2,20 @@ from torch import nn
 
 
 class Decoder(nn.Module):
-    def __init__(self, latent_size, output_size, kernel_size=5, layers=3):
+    def __init__(self, input_size, output_size, kernel_sizes=None, channels=None):
         super().__init__()
-        (ch, size) = latent_size
-        (ch_o, size_out) = output_size
-        lat_size_upscale = (size_out / size) ** (1 / layers)
-        channel_downscale = (ch_o / ch) ** (1 / layers)
-        k_1 = kernel_size - 1
+        size = input_size
+        size_out = output_size
+        layers = len(kernel_sizes)
+        upscale_ratio = (size_out / size) ** (1 / layers)
+
         sequence = nn.Sequential()
         for layer in range(layers):
-            up_size = int(size * lat_size_upscale ** (layer + 1))
-            ch_in = int(ch * (channel_downscale ** layer))
-            ch_next = int(ch * (channel_downscale ** (layer + 1)))
+            up_size = int(size * upscale_ratio ** (layer + 1))
+            ch_in = channels[layer]
+            ch_next = channels[layer + 1]
+            kernel_size = kernel_sizes[layer]
+            k_1 = kernel_size - 1
             upsample_layer = nn.UpsamplingBilinear2d(size=(up_size + k_1, up_size + k_1))
             sequence.append(upsample_layer)
             if layer < layers - 1:
@@ -29,33 +31,53 @@ class Decoder(nn.Module):
                 sequence.append(activation_layer)
         self.sequence = nn.Sequential(*sequence)
 
+    @classmethod
+    def single_kernel_endecode(cls, input_size, output_size, layers, kernel_size, inp_out_channels=None):
+        kernel_sizes = [kernel_size for _ in range(layers)]
+        in_channel = inp_out_channels[0]
+        out_channel = inp_out_channels[1]
+        ratio = (out_channel / in_channel) ** (1 / layers)
+        channels = [round(in_channel * ratio ** x) for x in range(layers + 1)]
+        dec = Decoder(input_size, output_size, kernel_sizes, channels)
+        return dec
+
     def forward(self, latent_z):
         return self.decoder(latent_z)
 
 
 class Encoder(nn.Module):
-    def __init__(self, latent_size, input_size, kernel_size=5, layers=3):
+    def __init__(self, input_size, output_size, kernel_sizes=None, channels=None):
         super().__init__()
-        (ch, size) = latent_size
-        (ch_inp, size_in) = input_size
-        downscale_ratio = (size / size_in) ** (1 / layers)
-        channel_upscale = (ch / ch_inp) ** (1 / layers)
-        padding = kernel_size // 2
+
+        size_out = output_size
+        layers = len(kernel_sizes)
+        downscale_ratio = (input_size / size_out) ** (1 / layers)
         sequence = nn.Sequential()
-        ch_in = 3
         for layer in range(layers):
-            ch_next = int(ch_inp * (channel_upscale ** layer))
-            conv_layer = nn.Conv2d(ch_in, ch_next, kernel_size, padding=padding)
+            chin, chout = channels[layer], channels[layer + 1]
+            kernel_size = kernel_sizes[layer]
+            padding = kernel_size // 2
+            conv_layer = nn.Conv2d(chin, chout, kernel_size, padding=padding)
             activation_layer = nn.Mish()
             pooling_layer = nn.FractionalMaxPool2d(kernel_size, downscale_ratio)
-            ch_in = ch_next
+
             sequence.append(conv_layer)
             sequence.append(activation_layer)
             sequence.append(pooling_layer)
         self.sequence = nn.Sequential(*sequence)
         self.mean_activation = nn.Tanh()
         self.std_pooling = nn.AdaptiveAvgPool2d(1)
-        self.std_normalization = nn.BatchNorm2d(ch)
+        self.std_normalization = nn.BatchNorm2d(channels[-1])
+
+    @classmethod
+    def single_kernel_encode(cls, input_size, output_size, layers, kernel_size, inp_out_channels=None):
+        kernel_sizes = [kernel_size for _ in range(layers)]
+        in_channel = inp_out_channels[0]
+        out_channel = inp_out_channels[1]
+        ratio = (out_channel / in_channel) ** (1 / layers)
+        channels = [round(in_channel * ratio ** x) for x in range(layers + 1)]
+        enc = Encoder(input_size, output_size, kernel_sizes, channels)
+        return enc
 
     def forward(self, input_x):
         layered_result = self.sequence(input_x)
