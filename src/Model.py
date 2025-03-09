@@ -31,7 +31,7 @@ class Model(nn.Module):
         var_up = self.variance_upsample(var)
         z_sample = self.reparameterization(mu, var_up)
         decoded = self.decoder(z_sample)
-        return mu, var, decoded
+        return mu, var, log_var, decoded
 
     def freeze_encoder(self):
         for param in self.encoder.parameters():
