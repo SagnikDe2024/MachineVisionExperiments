@@ -48,7 +48,7 @@ class Decoder(nn.Module):
             channels = channel_kernel_compute(inp_out_channels, layers)
         elif len(inp_out_channels) == 3 and layers > 2:
             channels_before = channel_kernel_compute(inp_out_channels[:-1], layers - 1)
-            channels = [*channels_before,inp_out_channels[-1]]
+            channels = [*channels_before, inp_out_channels[-1]]
         else:
             channels = [*inp_out_channels]
         print(f'Decoder channels and kernels: {channels},{kernel_sizes}')
@@ -73,14 +73,10 @@ class Encoder(nn.Module):
             conv_layer = nn.Conv2d(chin, chout, kernel_size, padding=padding)
             activation_layer = nn.Mish()
             pooling_layer = nn.FractionalMaxPool2d(kernel_size, downscale_ratio)
-
             sequence.append(conv_layer)
             sequence.append(activation_layer)
             sequence.append(pooling_layer)
         self.sequence = nn.Sequential(*sequence)
-        self.mean_activation = nn.Tanh()
-        self.std_pooling = nn.AdaptiveAvgPool2d(1)
-        self.std_normalization = nn.BatchNorm2d(channels[-1])
 
     @classmethod
     def single_kernel_encode(cls, input_size, output_size, kernel_sizes, inp_out_channels):
@@ -89,7 +85,7 @@ class Encoder(nn.Module):
         if len(inp_out_channels) == 2 and layers > 1:
             channels = channel_kernel_compute(inp_out_channels, layers)
         elif len(inp_out_channels) == 3 and layers > 2:
-            channels_later = channel_kernel_compute(inp_out_channels[1:], layers-1)
+            channels_later = channel_kernel_compute(inp_out_channels[1:], layers - 1)
             channels = [inp_out_channels[0], *channels_later]
         else:
             channels = [*inp_out_channels]
@@ -99,7 +95,7 @@ class Encoder(nn.Module):
 
     def forward(self, input_x):
         layered_result = self.sequence(input_x)
-        mean = self.mean_activation(layered_result)
-        std_1 = self.std_pooling(layered_result)
-        log_var = self.std_normalization(std_1)
+        (N, C, H, W) = layered_result.size()
+        mean = layered_result.view[:, :C // 2, :, :]
+        log_var = layered_result.view[:, C // 2:, :, :]
         return mean, log_var
