@@ -56,7 +56,7 @@ class Decoder(nn.Module):
         return dec
 
     def forward(self, latent_z):
-        return self.decoder(latent_z)
+        return self.sequence.forward(latent_z)
 
 
 class Encoder(nn.Module):
@@ -64,7 +64,7 @@ class Encoder(nn.Module):
         super().__init__()
 
         layers = len(kernel_sizes)
-        downscale_ratio = (input_size / output_size) ** (1 / layers)
+        downscale_ratio = (output_size / input_size) ** (1 / layers)
         sequence = nn.Sequential()
         for layer in range(layers):
             chin, chout = channels[layer], channels[layer + 1]
@@ -72,7 +72,7 @@ class Encoder(nn.Module):
             padding = kernel_size // 2
             conv_layer = nn.Conv2d(chin, chout, kernel_size, padding=padding)
             activation_layer = nn.Mish()
-            pooling_layer = nn.FractionalMaxPool2d(kernel_size, downscale_ratio)
+            pooling_layer = nn.FractionalMaxPool2d(kernel_size, output_ratio=downscale_ratio)
             sequence.append(conv_layer)
             sequence.append(activation_layer)
             sequence.append(pooling_layer)
@@ -94,8 +94,8 @@ class Encoder(nn.Module):
         return enc
 
     def forward(self, input_x):
-        layered_result = self.sequence(input_x)
+        layered_result = self.sequence.forward(input_x)
         (N, C, H, W) = layered_result.size()
-        mean = layered_result.view[:, :C // 2, :, :]
-        log_var = layered_result.view[:, C // 2:, :, :]
+        mean = layered_result[:, :C // 2, :, :]
+        log_var = layered_result[:, C // 2:, :, :]
         return mean, log_var
