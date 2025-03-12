@@ -1,13 +1,22 @@
+from typing import List
+
 from torch import nn
+
+
+def channel_kernel_compute(inp_out_channels: List[int], layers):
+    in_channel = inp_out_channels[0]
+    out_channel = inp_out_channels[1]
+    ratio = (out_channel / in_channel) ** (1 / layers)
+    channels = [round(in_channel * ratio ** x) for x in range(layers + 1)]
+    return channels
 
 
 class Decoder(nn.Module):
     def __init__(self, input_size, output_size, kernel_sizes=None, channels=None):
         super().__init__()
         size = input_size
-        size_out = output_size
         layers = len(kernel_sizes)
-        upscale_ratio = (size_out / size) ** (1 / layers)
+        upscale_ratio = (output_size / size) ** (1 / layers)
 
         sequence = nn.Sequential()
         for layer in range(layers):
@@ -23,21 +32,26 @@ class Decoder(nn.Module):
                 activation_layer = nn.Mish()
                 sequence.append(conv_layer)
                 sequence.append(activation_layer)
-                sequence.append(nn.BatchNorm2d(ch_next))
+                # sequence.append(nn.BatchNorm2d(ch_next))
             else:
                 conv_layer = nn.Conv2d(ch_in, 3, kernel_size)
-                activation_layer = nn.Sigmoid()
+                activation_layer = nn.Tanh()
                 sequence.append(conv_layer)
                 sequence.append(activation_layer)
         self.sequence = nn.Sequential(*sequence)
 
     @classmethod
-    def single_kernel_endecode(cls, input_size, output_size, layers, kernel_size, inp_out_channels=None):
-        kernel_sizes = [kernel_size for _ in range(layers)]
-        in_channel = inp_out_channels[0]
-        out_channel = inp_out_channels[1]
-        ratio = (out_channel / in_channel) ** (1 / layers)
-        channels = [round(in_channel * ratio ** x) for x in range(layers + 1)]
+    def single_kernel_decode(cls, input_size, output_size, kernel_sizes, inp_out_channels):
+        layers = len(kernel_sizes)
+
+        if len(inp_out_channels) == 2 and layers > 1:
+            channels = channel_kernel_compute(inp_out_channels, layers)
+        elif len(inp_out_channels) == 3 and layers > 2:
+            channels_before = channel_kernel_compute(inp_out_channels[:-1], layers - 1)
+            channels = [*channels_before,inp_out_channels[-1]]
+        else:
+            channels = [*inp_out_channels]
+        print(f'Decoder channels and kernels: {channels},{kernel_sizes}')
         dec = Decoder(input_size, output_size, kernel_sizes, channels)
         return dec
 
@@ -49,9 +63,8 @@ class Encoder(nn.Module):
     def __init__(self, input_size, output_size, kernel_sizes=None, channels=None):
         super().__init__()
 
-        size_out = output_size
         layers = len(kernel_sizes)
-        downscale_ratio = (input_size / size_out) ** (1 / layers)
+        downscale_ratio = (input_size / output_size) ** (1 / layers)
         sequence = nn.Sequential()
         for layer in range(layers):
             chin, chout = channels[layer], channels[layer + 1]
@@ -70,12 +83,17 @@ class Encoder(nn.Module):
         self.std_normalization = nn.BatchNorm2d(channels[-1])
 
     @classmethod
-    def single_kernel_encode(cls, input_size, output_size, layers, kernel_size, inp_out_channels=None):
-        kernel_sizes = [kernel_size for _ in range(layers)]
-        in_channel = inp_out_channels[0]
-        out_channel = inp_out_channels[1]
-        ratio = (out_channel / in_channel) ** (1 / layers)
-        channels = [round(in_channel * ratio ** x) for x in range(layers + 1)]
+    def single_kernel_encode(cls, input_size, output_size, kernel_sizes, inp_out_channels):
+        layers = len(kernel_sizes)
+
+        if len(inp_out_channels) == 2 and layers > 1:
+            channels = channel_kernel_compute(inp_out_channels, layers)
+        elif len(inp_out_channels) == 3 and layers > 2:
+            channels_later = channel_kernel_compute(inp_out_channels[1:], layers-1)
+            channels = [inp_out_channels[0], *channels_later]
+        else:
+            channels = [*inp_out_channels]
+        print(f'Encoder channels and kernels: {channels},{kernel_sizes}')
         enc = Encoder(input_size, output_size, kernel_sizes, channels)
         return enc
 
