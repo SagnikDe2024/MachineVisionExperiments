@@ -1,59 +1,45 @@
 import torch
 from torch import nn
-from torch.version import cuda
 
 from src.codec import Encoder, Decoder
-DEVICE = torch.device("cuda" if cuda else "cpu")
+
 
 class Model(nn.Module):
-    def __init__(self,latent_channels,latent_size,input_channels,output_channels,size):
+    def __init__(self, encoder: Encoder, decoder: Decoder):
         super().__init__()
-        self.latent_channels = latent_channels
-        self.latent_size = latent_size
-        self.input_channels = input_channels
-        self.output_channels = output_channels
-        self.size = size
-        self.encoder = Encoder((latent_channels,latent_size),(input_channels,size),5,3)
-        self.decoder = Decoder((latent_channels,latent_size),(output_channels,size),5,3)
-        self.variance_upsample = nn.Upsample(size=(latent_size, latent_size))
-
+        self.encoder = encoder
+        self.decoder = decoder
 
     @staticmethod
-    def reparameterization(mean, var):
-        epsilon = torch.randn_like(mean) # sampling epsilon
-
+    def reparameterization(mean, log_var):
+        var = torch.exp(0.5 * log_var)
+        epsilon = torch.randn_like(var)  # sampling epsilon
         z = mean + var * epsilon  # reparameterization trick
         return z
 
-    def forward(self,x):
-        mu,log_var = self.encoder.forward(x)
-        var = torch.exp(0.5 * log_var)
-        var_up = self.variance_upsample(var)
-        z_sample = self.reparameterization(mu, var_up)
-        decoded = self.decoder(z_sample)
-        return mu, var, log_var, decoded
+    def forward(self, x):
+        mu, log_var = self.encoder.forward(x)
+        z_sample = self.reparameterization(mu, log_var)
+        decoded = self.decoder.forward(z_sample)
 
-    def freeze_encoder(self):
-        for param in self.encoder.parameters():
-            param.requires_grad = False
+        # 2 way regularization, a latent going through decoder -> encoder chain should have the same mean as the one generated.
+        z_sample_2 = self.reparameterization(mu, log_var)
+        decoded_2 = self.decoder.forward(z_sample_2)
+        z_sample_2_mu, _ = self.encoder.forward(decoded_2)
 
-    def unfreeze_encoder(self):
-        for param in self.encoder.parameters():
-            param.requires_grad = True
+        return mu, log_var, decoded, z_sample_2_mu
 
-    def freeze_decoder(self):
-        for param in self.decoder.parameters():
-            param.requires_grad = False
+    # I believe that the decoder can be fine-tuned with generated latents and so the encoder is frozen
+    def encoder_eval_mode(self):
+        self.encoder.eval()
 
-    def unfreeze_decoder(self):
-        for param in self.decoder.parameters():
-            param.requires_grad = True
-
-    def generate(self,given_sample):
+    # Generate sample like a given sample
+    def generate(self, given_sample):
         mu, log_var = self.encoder.forward(given_sample)
-        var = torch.exp(0.5 * log_var)
+
         def get_new_sample():
-            z_sample = self.reparameterization(mu, var)
+            z_sample = self.reparameterization(mu, log_var)
             decoded = self.decoder(z_sample)
             return z_sample, decoded
+
         return get_new_sample()
