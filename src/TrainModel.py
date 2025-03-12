@@ -105,7 +105,7 @@ if __name__ == '__main__':
         encoder.train(True)
         decoder.train(True)
         last_loss_kl, last_loss_mse = train_one_epoch(encoder, decoder, optimizer, train_loader, epoch, writer)
-        avg_vloss = last_loss_kl + last_loss_mse
+        avg_loss = last_loss_kl + last_loss_mse
 
         running_vloss = 0.0
         # Set the model to evaluation mode, disabling dropout and using population
