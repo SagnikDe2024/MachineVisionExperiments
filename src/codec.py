@@ -27,16 +27,14 @@ class Decoder(nn.Module):
             k_1 = kernel_size - 1
             upsample_layer = nn.UpsamplingBilinear2d(size=(up_size + k_1, up_size + k_1))
             sequence.append(upsample_layer)
+            conv_layer = nn.Conv2d(ch_in, ch_next, kernel_size)
+            sequence.append(conv_layer)
             if layer < layers - 1:
-                conv_layer = nn.Conv2d(ch_in, ch_next, kernel_size)
                 activation_layer = nn.Mish()
-                sequence.append(conv_layer)
                 sequence.append(activation_layer)
                 # sequence.append(nn.BatchNorm2d(ch_next))
             else:
-                conv_layer = nn.Conv2d(ch_in, 3, kernel_size)
                 activation_layer = nn.Tanh()
-                sequence.append(conv_layer)
                 sequence.append(activation_layer)
         self.sequence = nn.Sequential(*sequence)
 
