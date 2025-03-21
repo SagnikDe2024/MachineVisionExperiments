@@ -1,6 +1,37 @@
+import logging
 from typing import List
 
 from torch import nn
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+
+# A k x k kernel with c_in input channels and c_out output channels will have params = (k*k*c_in + 1)*c_out
+# This will create two kernels 1 x k and k x 1 with intermediate number of features c_intermediate so that it has  (ratio_to_k2) * params parameters
+
+
+def generate_separated_kernels(k_size: int, input_channel: int, output_channel: int, ratio_to_k2: float,
+                               add_padding=True):
+    r = ratio_to_k2
+    c_in = input_channel
+    c_out = output_channel
+    k = k_size
+    c_intermediate = round((c_out * (-1 + r + c_in * (k ** 2) * r)) / (1 + (c_in + c_out) * k), 0)
+    if c_in != c_out:
+        intermediate_location = (c_intermediate - c_in) / (c_out - c_in)
+        if 0 <= intermediate_location <= 1:
+            logger.warn(
+                f'Inconsistency in intermediate features: c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}. {c_intermediate} ∉ [{c_in},{c_out}]')
+    if add_padding:
+        padding = k // 2
+        conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (k, 1), padding=(padding, 0))
+        conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (1, k), padding=(0, padding))
+        return nn.Sequential(conv_layer_1, conv_layer_2)
+    else:
+        conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (k, 1))
+        conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (1, k))
+        return nn.Sequential(conv_layer_1, conv_layer_2)
 
 
 def channel_kernel_compute(inp_out_channels: List[int], layers):
@@ -67,8 +98,10 @@ class Encoder(nn.Module):
         for layer in range(layers):
             chin, chout = channels[layer], channels[layer + 1]
             kernel_size = kernel_sizes[layer]
-            padding = kernel_size // 2
-            conv_layer = nn.Conv2d(chin, chout, kernel_size, padding=padding)
+            # padding = kernel_size // 2
+            conv_layer = generate_separated_kernels(kernel_size, chin, chout, 1.125 * 2 / kernel_size)
+
+            # conv_layer = nn.Conv2d(chin, chout, kernel_size, padding=padding)
             activation_layer = nn.Mish()
             pooling_layer = nn.FractionalMaxPool2d(kernel_size, output_ratio=downscale_ratio)
             sequence.append(conv_layer)
@@ -93,7 +126,7 @@ class Encoder(nn.Module):
 
     def forward(self, input_x):
         layered_result = self.sequence.forward(input_x)
-        (N, C, H, W) = layered_result.size()
-        mean = layered_result[:, :C // 2, :, :]
-        log_var = layered_result[:, C // 2:, :, :]
+        (n, c, h, w) = layered_result.size()
+        mean = layered_result[:, :c // 2, :, :]
+        log_var = layered_result[:, c // 2:, :, :]
         return mean, log_var
