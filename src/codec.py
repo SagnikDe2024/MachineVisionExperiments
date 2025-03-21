@@ -103,7 +103,7 @@ class Encoder(nn.Module):
 
             # conv_layer = nn.Conv2d(chin, chout, kernel_size, padding=padding)
             activation_layer = nn.Mish()
-            pooling_layer = nn.FractionalMaxPool2d(kernel_size, output_ratio=downscale_ratio)
+            pooling_layer = nn.FractionalMaxPool2d(2, output_ratio=downscale_ratio)
             sequence.append(conv_layer)
             sequence.append(activation_layer)
             sequence.append(pooling_layer)
