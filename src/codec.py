@@ -17,10 +17,10 @@ def generate_separated_kernels(k_size: int, input_channel: int, output_channel: 
     c_in = input_channel
     c_out = output_channel
     k = k_size
-    c_intermediate = round((c_out * (-1 + r + c_in * (k ** 2) * r)) / (1 + (c_in + c_out) * k), 0)
+    c_intermediate = int(round((c_out * (-1 + r + c_in * (k ** 2) * r)) / (1 + (c_in + c_out) * k), 0))
     if c_in != c_out:
         intermediate_location = (c_intermediate - c_in) / (c_out - c_in)
-        if 0 <= intermediate_location <= 1:
+        if not (0 <= intermediate_location <= 1):
             logger.warn(
                 f'Inconsistency in intermediate features: c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}. {c_intermediate} ∉ [{c_in},{c_out}]')
     if add_padding:
