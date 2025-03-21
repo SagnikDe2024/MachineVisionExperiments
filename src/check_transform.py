@@ -1,8 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch.nn.functional import fractional_max_pool2d
+from torchvision import transforms
 from torchvision.io import decode_image, ImageReadMode, write_jpeg, write_png
-from torchvision.transforms.v2.functional import pad_image, rotate, InterpolationMode, crop
+from torchvision.transforms.v2.functional import pad_image, rotate, InterpolationMode, crop, resize_image
 
 below = 0.01
 
@@ -105,30 +107,68 @@ def gen_fourier_image(size, angle):
 
 
 
+def minimize_and_rotate(t1, times):
+    angle = 90/times
+    rot_image = []
+    for _ in range(times):
+        c, h, w = t1.shape
+        h,w = h//2, w//2
+        t1 = resize_image(t1,[h,w])
+        t1 = rotate(t1, angle, interpolation=InterpolationMode.BILINEAR,expand=True)
+        rot_image.append(t1)
+    return rot_image
+
+
+def use_frac_pool(t1,kernel,fraction, times):
+
+    pooled_image = []
+
+    for _ in range(times):
+        t1 = fractional_max_pool2d(t1,kernel,output_ratio=fraction)
+        pooled_image.append(t1)
+    return pooled_image
+
+
+
+
+
+
 
 
 if __name__ == '__main__':
     # result = gen_fourier_image(512,np.pi/6)
     # print(result)
-    img = decode_image("../data/normal_pic.jpg", mode=ImageReadMode.RGB)
-    img = img.to(dtype=torch.float32)
-    img = img/255
-    crop_size = 256
-    padding = crop_size//4
-    img = crop(img,400,1244 ,  crop_size,crop_size)
-    increased_img = pad_image(img,padding=padding)
+    transform = transforms.Compose([transforms.LinearTransformation])
+    img = decode_image("../data/normal_pic.jpg", mode=ImageReadMode.RGB).to(dtype=torch.float32)
 
-    increased_img_45 = rotate(increased_img,45,InterpolationMode.BILINEAR)
-    increased_img_135 = rotate(increased_img,-45,InterpolationMode.BILINEAR)
-    rot_x_diff = torch.diff(increased_img_45,dim=2)
-    rot_y_diff = torch.diff(increased_img_135,dim=2)
+    frac_pool = use_frac_pool(img, (2,2), (2/3,2/3) , 10)
+    # rotated_images = minimize_and_rotate(img, 6)
+    trans_imgs = frac_pool
+    for i,rotated_image in enumerate(trans_imgs):
+        write_png(rotated_image.to(dtype=torch.uint8), f'../out/frac_pool_{i}_image.png')
 
-    x_diff = rotate(rot_x_diff,-45,InterpolationMode.BILINEAR)
-    y_diff = rotate(rot_y_diff,45,InterpolationMode.BILINEAR)
-    x_diff_abs = torch.abs(x_diff)
-    y_diff_abs = torch.abs(y_diff)
-    max_diff = (x_diff_abs + y_diff_abs - 2*(x_diff_abs*y_diff_abs))/(2-x_diff_abs-y_diff_abs)
-    cropped_diff = crop(max_diff,padding-1,padding-1, crop_size+2,crop_size+2)*255
+
+
+
+
+    # img = img.to(dtype=torch.float32)
+    # img = img/255
+    # crop_size = 256
+    # padding = crop_size//4
+    # img = crop(img,400,1244 ,  crop_size,crop_size)
+    # increased_img = pad_image(img,padding=padding)
+    #
+    # increased_img_45 = rotate(increased_img,45,InterpolationMode.BILINEAR)
+    # increased_img_135 = rotate(increased_img,-45,InterpolationMode.BILINEAR)
+    # rot_x_diff = torch.diff(increased_img_45,dim=2)
+    # rot_y_diff = torch.diff(increased_img_135,dim=2)
+    #
+    # x_diff = rotate(rot_x_diff,-45,InterpolationMode.BILINEAR)
+    # y_diff = rotate(rot_y_diff,45,InterpolationMode.BILINEAR)
+    # x_diff_abs = torch.abs(x_diff)
+    # y_diff_abs = torch.abs(y_diff)
+    # max_diff = (x_diff_abs + y_diff_abs - 2*(x_diff_abs*y_diff_abs))/(2-x_diff_abs-y_diff_abs)
+    # cropped_diff = crop(max_diff,padding-1,padding-1, crop_size+2,crop_size+2)*255
 
 
 
@@ -150,7 +190,7 @@ if __name__ == '__main__':
     # rgb_image = convert_complex_to_rgb(diff_scaled).squeeze(0)
     # # rgb_rotated_back = rotate(rgb_image,-45,InterpolationMode.BILINEAR)
 
-    write_png(cropped_diff.to(dtype=torch.uint8), "../out/complex_pipe_max_crop.png")
+    # write_png(cropped_diff.to(dtype=torch.uint8), "../out/complex_pipe_max_crop.png")
 
 
 
