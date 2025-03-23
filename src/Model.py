@@ -56,6 +56,9 @@ class Model(nn.Module):
         return get_new_sample()
 
 
+# This will classify the CIFAR-10 model into the classes for now. Might be helpful for checking the generation
+# when it will be used later.
+
 class Classifier(nn.Module):
     def __init__(self, dnn_layers: List[int], starting_size=32, feature_upscale=4 / 3):
         super().__init__()
@@ -85,30 +88,16 @@ class Classifier(nn.Module):
             sequence.append(lin)
             sequence.append(act)
         sequence.append(nn.Linear(dnn_layers[-2], dnn_layers[-1]))
-        sequence.append(nn.Softmax(dim=1))
+        # sequence.append(nn.Softmax(dim=1)) No need as the cross-entropy loss will normalize on its own.
         self.sequence = nn.Sequential(*sequence)
+        self.normalized = nn.Softmax(dim=1)
 
     def forward(self, x):
         features = self.encoder.forward(x)
-        probabilities = self.sequence(features)
-        return probabilities
-
-
-def get_children(model: torch.nn.Module):
-    # get children form model
-    children = list(model.children())
-    flat_children = []
-    if not children:
-        # if model has no children; model is last child
-        return model
-    else:
-        # look for children from children, to the last child
-        for child in children:
-            try:
-                flat_children.extend(get_children(child))
-            except TypeError:
-                flat_children.append(get_children(child))
-    return flat_children
+        raw_probability_values = self.sequence(features)
+        probabilities = self.normalized(raw_probability_values)
+        # Normalize when using the model.
+        return raw_probability_values, probabilities
 
 
 if __name__ == '__main__':
