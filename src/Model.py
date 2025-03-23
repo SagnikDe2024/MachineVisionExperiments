@@ -1,11 +1,19 @@
+import logging
 from math import floor, log2
 from typing import List
 
 import torch
 from torch import nn
+from torchinfo import summary
 
 from src.codec import Encoder, Decoder
 
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(filename='../log/ImageEncDec.log', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s',
+                    encoding='utf-8', level=logging.INFO)
+
+logger.setLevel(logging.INFO)
 
 class Model(nn.Module):
     def __init__(self, encoder: Encoder, decoder: Decoder):
@@ -52,20 +60,21 @@ class Classifier(nn.Module):
     def __init__(self, dnn_layers: List[int], starting_size=32, feature_upscale=4 / 3):
         super().__init__()
 
-        final_downscaled_size = 1
-        final_channels = dnn_layers[0]
-        image_downscale = 3 / 5
+        final_downscaled_size = 2
+        final_channels = dnn_layers[0] / (final_downscaled_size ** 2)
+        image_downscale = 2 / 3
 
         layers_required = floor(log2(final_downscaled_size / starting_size) / log2(image_downscale))
         channels_rest = [round(final_channels * (1 / feature_upscale) ** l) for l in range(layers_required)]
         channels_rest.reverse()
         channels = [3, *channels_rest]
         kernels = [3 for _ in range(layers_required)]
-        encoder = Encoder(starting_size, 1, kernels, channels)
+        encoder = Encoder(starting_size, final_downscaled_size, kernels, channels)
 
         self.encoder = encoder
         sequence = nn.Sequential()
-
+        sequence.append(nn.Mish())
+        # nn.AdaptiveAvgPool2d((1,1))
         # Flatten the result from the encoder first
         sequence.append(nn.Flatten())
 
@@ -103,7 +112,6 @@ def get_children(model: torch.nn.Module):
 
 
 if __name__ == '__main__':
-    classifier = Classifier([384, 62, 10], 32, 3 / 2)
-    print(classifier)
-    all_children = get_children(classifier)
-    print(all_children)
+    classifier = Classifier([96, 50, 10], 32, 4 / 3)
+
+    summary(classifier, input_size=(128, 3, 32, 32))
