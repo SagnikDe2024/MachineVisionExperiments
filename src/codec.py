@@ -92,10 +92,13 @@ class Decoder(nn.Module):
         size = input_size
         layers = len(kernel_sizes)
         upscale_ratio = (output_size / size) ** (1 / layers)
+        upsized_channels = [int(round(size * upscale_ratio ** (layer + 1), 0)) for layer in range(layers)]
+        logger.info(
+            f'Decoder Layers = {layers}, upsizing without kernel included = {upsized_channels}, channels = {channels}')
 
         sequence = nn.Sequential()
         for layer in range(layers):
-            up_size = int(size * upscale_ratio ** (layer + 1))
+            up_size = upsized_channels[layer]
             ch_in = channels[layer]
             ch_next = channels[layer + 1]
             kernel_size = kernel_sizes[layer]
@@ -139,6 +142,9 @@ class Encoder(nn.Module):
         layers = len(kernel_sizes)
         downscale_ratio = (output_size / input_size) ** (1 / layers)
         sequence = nn.Sequential()
+        downsampled_sizes = [int(round(downscale_ratio ** (layer + 1), 0)) for layer in range(layers)]
+        logger.info(
+            f'Encoder Layers = {layers}, downsampled_sizes = {downsampled_sizes}, channels = {channels}')
         for layer in range(layers):
             chin, chout = channels[layer], channels[layer + 1]
             kernel_size = kernel_sizes[layer]
@@ -147,7 +153,7 @@ class Encoder(nn.Module):
 
             # conv_layer = nn.Conv2d(chin, chout, kernel_size, padding=padding)
             activation_layer = nn.Mish()
-            pooling_layer = nn.FractionalMaxPool2d(2, output_ratio=downscale_ratio)
+            pooling_layer = nn.FractionalMaxPool2d(2, output_size=downsampled_sizes[layer])
             sequence.append(conv_layer)
             sequence.append(activation_layer)
             sequence.append(pooling_layer)
