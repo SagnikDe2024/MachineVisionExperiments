@@ -10,10 +10,8 @@ from src.codec import Encoder, Decoder
 
 logger = logging.getLogger(__name__)
 
-logging.basicConfig(filename='../log/ImageEncDec.log', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s',
-                    encoding='utf-8', level=logging.INFO)
-
 logger.setLevel(logging.INFO)
+
 
 class Model(nn.Module):
     def __init__(self, encoder: Encoder, decoder: Decoder):
@@ -101,6 +99,8 @@ class Classifier(nn.Module):
 
 
 if __name__ == '__main__':
+    logging.basicConfig(filename='../log/ImageEncDec.log', filemode='w',
+                        format='%(asctime)s - %(levelname)s - %(message)s',
+                        encoding='utf-8', level=logging.INFO)
     classifier = Classifier([96, 50, 10], 32, 4 / 3)
-
     summary(classifier, input_size=(128, 3, 32, 32))
