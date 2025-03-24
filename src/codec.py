@@ -1,12 +1,10 @@
-import logging
 from dataclasses import dataclass
 from math import log2
 from typing import List
 
 from torch import nn
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+from src.common_utils import AppLog
 
 
 @dataclass
@@ -49,10 +47,10 @@ def generate_separated_kernels(k_size: int, input_channel: int, output_channel: 
         a = log2(c_in * k ** 2 * r + r - 1) / log2(t) - log2(c_in * k * (t + 1) + 1) / log2(t) + 1
 
     c_intermediate = int(round((c_in ** (1 - a) * c_out ** a), 0))
-
+    AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
     if not (0 <= a <= 1):
-            logger.warn(
-                f'Inconsistency in intermediate features: c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}. {c_intermediate} ∉ [{c_in},{c_out}]')
+        AppLog.warn(
+            f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
 
     if add_padding:
         padding = k // 2
@@ -93,8 +91,8 @@ class Decoder(nn.Module):
         layers = len(kernel_sizes)
         upscale_ratio = (output_size / size) ** (1 / layers)
         upsized_channels = [int(round(size * upscale_ratio ** (layer + 1), 0)) for layer in range(layers)]
-        logger.info(
-            f'Decoder Layers = {layers}, upsizing without kernel included = {upsized_channels}, channels = {channels}')
+        AppLog.info(
+            f'Layers = {layers}, upsizing without kernel included = {upsized_channels}, channels = {channels}')
 
         sequence = nn.Sequential()
         for layer in range(layers):
@@ -143,8 +141,9 @@ class Encoder(nn.Module):
         downscale_ratio = (output_size / input_size) ** (1 / layers)
         sequence = []
         downsampled_sizes = [int(round(input_size * downscale_ratio ** (layer + 1), 0)) for layer in range(layers)]
-        logger.info(
-            f'Encoder Layers = {layers}, downsampled_sizes = {downsampled_sizes}, channels = {channels}')
+        AppLog.info(
+            f'Layers = {layers}, downsampled_sizes = {downsampled_sizes}, channels = {channels}')
+
         for layer in range(layers):
             chin, chout = channels[layer], channels[layer + 1]
             kernel_size = kernel_sizes[layer]

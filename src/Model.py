@@ -1,4 +1,3 @@
-import logging
 from math import floor, log2
 from typing import List
 
@@ -7,10 +6,7 @@ from torch import nn
 from torchinfo import summary
 
 from src.codec import Encoder, Decoder
-
-logger = logging.getLogger(__name__)
-
-logger.setLevel(logging.INFO)
+from src.common_utils import AppLog
 
 
 class Model(nn.Module):
@@ -99,8 +95,6 @@ class Classifier(nn.Module):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(filename='../log/ImageEncDec.log', filemode='w',
-                        format='%(asctime)s - %(levelname)s - %(message)s',
-                        encoding='utf-8', level=logging.INFO)
-    classifier = Classifier([96, 50, 10], 32, 4 / 3)
-    summary(classifier, input_size=(128, 3, 32, 32))
+    classifier = Classifier([384, 50, 10], 32, 4 / 3)
+
+    AppLog.info(f'{summary(classifier, input_size=(128, 3, 32, 32))}')
