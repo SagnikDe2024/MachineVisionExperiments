@@ -1,11 +1,10 @@
 import torch
 from matplotlib import pyplot as plt
 from torch import nn
-from torchvision import transforms
-from torchvision.datasets import CIFAR10
 
 from src.Model import Model
 from src.codec import Encoder, Decoder
+from src.train_classifier import load_cifar_dataset
 
 
 def show_image(img_data):
@@ -56,19 +55,12 @@ def train_one_epoch(encoder, decoder, optimizer, training_loader, epoch, tb_writ
 
 if __name__ == '__main__':
 
-    transform = transforms.Compose(
-        [transforms.ToTensor(),
-         transforms.Normalize((0.5,), (0.5,))])
-
     # ds = load_dataset("stochastic/random_streetview_images_pano_v0.0.2")
 
-    training_set = CIFAR10(root='../data/CIFAR/train', train=True, download=True, transform=transform)
-    validation_set = CIFAR10(root='../data/CIFAR/test', train=False, download=True, transform=transform)
-    train_loader = torch.utils.data.DataLoader(training_set, batch_size=64, shuffle=True)
-    validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=64, shuffle=True)
 
-    print('Training set has {} instances'.format(len(training_set)))
-    print('Validation set has {} instances'.format(len(validation_set)))
+
+    train_loader, validation_loader = load_cifar_dataset()
+
 
     encoder = Encoder(32, 4, [3, 5, 5], [3, 8, 14, 24])
     decoder = Decoder(4, 32, [5, 5,5], [24,20,16,3])
