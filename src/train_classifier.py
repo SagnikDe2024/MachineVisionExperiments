@@ -22,9 +22,9 @@ def load_cifar_dataset(batch=512):
 
 if __name__ == '__main__':
 
-    train_loader, validation_loader = load_cifar_dataset(1024)
+    train_loader, validation_loader = load_cifar_dataset(768)
 
-    classifier = Classifier([384, 62, 10]).cuda()
+    classifier = Classifier([384, 114, 34, 10]).cuda()
     AppLog.info(f'{summary(classifier, input_size=(128, 3, 32, 32))}')
     learning_rate = 0.001
     optimizer = torch.optim.Adam(classifier.parameters(), lr=learning_rate)
