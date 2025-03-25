@@ -1,10 +1,8 @@
 import torch
 
-from src.Model import Classifier
-from src.common_utils import AppLog
+from src.models.Model import Classifier
+from src.utils.common_utils import AppLog
 from src.train_classifier import load_cifar_dataset
-
-from torcheval.metrics.functional import multiclass_confusion_matrix
 
 
 def show_images(img_b):
@@ -13,7 +11,7 @@ def show_images(img_b):
 
 
 def load_model(model_name):
-    classifier_params, model_state = torch.load(f'../models/{model_name}')
+    classifier_params, model_state = torch.load(f'models/{model_name}')
     saved_classifier = Classifier(**classifier_params)
     saved_classifier.load_state_dict(model_state)
     return saved_classifier
