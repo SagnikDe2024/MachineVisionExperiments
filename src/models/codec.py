@@ -4,7 +4,7 @@ from typing import List
 
 from torch import nn
 
-from src.common_utils import AppLog
+from src.utils.common_utils import AppLog
 
 
 @dataclass

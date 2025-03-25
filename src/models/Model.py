@@ -4,8 +4,8 @@ import torch
 from torch import nn
 from torchinfo import summary
 
-from src.codec import Encoder, Decoder
-from src.common_utils import AppLog
+from src.models.codec import Encoder, Decoder
+from src.utils.common_utils import AppLog
 
 
 class Model(nn.Module):
