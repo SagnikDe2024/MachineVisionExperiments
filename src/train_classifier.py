@@ -86,7 +86,10 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
     classifier = Classifier(dnn_params, 32, final_size, starting_channels, final_channels, cnn_layers).to(device)
     # classifier = ray.train.torch.prepare_model(classifier)
 
-    AppLog.info(f'{summary(classifier, input_size=(batch_size, 3, 32, 32))}')
+    model_summary = summary(classifier, input_size=(batch_size, 3, 32, 32))
+    trainable_params = model_summary.trainable_params
+
+    AppLog.info(f'{model_summary}')
     optimizer = torch.optim.Adam(classifier.parameters(), lr=learning_rate)
     loss_fn = nn.CrossEntropyLoss()
 
@@ -121,7 +124,7 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
             # torch.save((classifier.model_params, classifier.state_dict()), f'../models/{model_name}')
             torch.save((classifier.model_params, classifier.state_dict()),
                        f'C:/mywork/python/ImageEncoderDecoder/models/{model_name}')
-    return best_vloss, best_model_name, classifier.model_params
+    return best_vloss, best_model_name, classifier.model_params, trainable_params
 
 
 def tune_classifier_aux(config):
@@ -131,9 +134,12 @@ def tune_classifier_aux(config):
     config['starting_channels'] = int(config['starting_channels'])
     config['final_channels'] = int(config['final_channels'])
 
-    best_vloss, best_model_name, model_params = tune_classifier(**config)
+    best_vloss, best_model_name, model_params, trainable_params = tune_classifier(**config)
+    AppLog.info(
+        f'Best vloss: {best_vloss}, with {trainable_params} params. Performance per param (Higher is better) = {1 / (trainable_params * best_vloss)}')
     AppLog.info(
         f'Classifier best vloss: {best_vloss}, training done. Model params: {model_params}. Saved model: {best_model_name} ')
+
     return {'v_loss': best_vloss}
 
 
@@ -152,12 +158,13 @@ if __name__ == '__main__':
     # scaling_config = ScalingConfig(use_gpu=True)
     # run_config = RunConfig(storage_path='../models', name='tuned_classifier.pth')
     ray.init(local_mode=True, _temp_dir='C:/mywork/python/ImageEncoderDecoder/out')
+    trainable_with_resources = tune.with_resources(tune_classifier_aux, {"gpu": 0.25})
 
     search_space = {'learning_rate': tune.loguniform(0.01, 0.0001), 'dnn_layers': tune.quniform(3, 6, 1),
                     'final_size': tune.quniform(1, 4, 1), 'starting_channels': tune.qloguniform(12, 32, 4),
                     'final_channels': tune.qloguniform(128, 384, 64), 'cnn_layers': tune.quniform(3, 6, 1),
                     'batch_size': tune.grid_search([250, 500, 1000])}
-    tuner = tune.Tuner(tune_classifier_aux, param_space=search_space,
+    tuner = tune.Tuner(trainable_with_resources, param_space=search_space,
                        tune_config=tune.TuneConfig(num_samples=20, trial_dirname_creator=trail_dir_name,
                                                    scheduler=ASHAScheduler(metric='v_loss', mode='min')))
     results = tuner.fit()
