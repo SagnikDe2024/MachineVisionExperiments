@@ -2,8 +2,8 @@ import torch
 from matplotlib import pyplot as plt
 from torch import nn
 
-from src.Model import Model
-from src.codec import Encoder, Decoder
+from src.models.Model import Model
+from src.models.codec import Encoder, Decoder
 from src.train_classifier import load_cifar_dataset
 
 
