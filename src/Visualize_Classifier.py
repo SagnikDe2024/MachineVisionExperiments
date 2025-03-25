@@ -20,7 +20,7 @@ def load_model(model_name):
 
 
 def get_state_and_show():
-    saved_classifier = load_model('classifier_2')
+    saved_classifier = load_model('classifier_20250325T013256_10.pth')
     saved_classifier = saved_classifier.cuda()
     saved_classifier.eval()
     tr, valid = load_cifar_dataset(16)
