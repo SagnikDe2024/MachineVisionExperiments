@@ -32,7 +32,7 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(classifier.parameters(), lr=learning_rate)
     loss_fn = nn.CrossEntropyLoss()
 
-    EPOCHS = 10
+    EPOCHS = 20
     best_vloss = float('inf')
     AppLog.info(f'Starting {EPOCHS} epochs with learning rate {learning_rate}')
 
