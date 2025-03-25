@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import torch
 from torch import nn
 from torchinfo import summary
@@ -50,6 +52,7 @@ if __name__ == '__main__':
             running_loss += loss.item()
             AppLog.info(
                 f'Epoch [{epoch + 1}/{EPOCHS}]: Batch [{train_batch_index}]: Loss: {running_loss / train_batch_index}')
+        avg_loss = running_loss / train_batch_index
 
         # Evaluate the classifier.
         classifier.eval()
@@ -66,12 +69,13 @@ if __name__ == '__main__':
                 AppLog.info(
                     f'Epoch [{epoch + 1}/{EPOCHS}]: V_Batch [{valid_batch_index}]: V_Loss: {running_vloss / (valid_batch_index)}')
 
-        avg_loss = running_loss / train_batch_index
         avg_vloss = running_vloss / valid_batch_index
+
         AppLog.info(f'Epoch {epoch + 1}: Training loss = {avg_loss}, Validation Loss = {avg_vloss}')
 
         if avg_vloss < best_vloss:
             best_vloss = avg_vloss
-            torch.save((classifier.model_params, classifier.state_dict()), f'../models/classifier_{epoch + 1}')
+            torch.save((classifier.model_params, classifier.state_dict()),
+                       f'../models/classifier_{epoch + 1}_{datetime.now().replace(microsecond=0).isoformat()}.pth')
 
     AppLog.info(f'Classifier best vloss: {best_vloss}, training done')
