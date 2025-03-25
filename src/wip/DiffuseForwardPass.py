@@ -76,9 +76,9 @@ def find_complex_diff(pic: torch.tensor):
 
 
 
-    write_png(convert_complex_to_rgb(xdiff).squeeze(0).to(dtype=torch.uint8), "../out/complex_xdiff.png")
+    write_png(convert_complex_to_rgb(xdiff).squeeze(0).to(dtype=torch.uint8), "../../out/complex_xdiff.png")
     ydiff = torch.diff(pic, dim=1, prepend=torch.zeros(n,1,w))
-    write_png(convert_complex_to_rgb(ydiff).squeeze(0).to(dtype=torch.uint8), "../out/complex_ydiff.png")
+    write_png(convert_complex_to_rgb(ydiff).squeeze(0).to(dtype=torch.uint8), "../../out/complex_ydiff.png")
 
     npx = np.array(xdiff)
     npy = np.array(ydiff)
