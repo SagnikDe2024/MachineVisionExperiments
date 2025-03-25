@@ -16,21 +16,21 @@ def load_cifar_dataset(batch=512):
     validation_set = CIFAR10(root='../data/CIFAR/test', train=False, download=True, transform=transform)
     AppLog.info(f'{len(training_set)} training samples and {len(validation_set)} validation samples')
     train_loader = torch.utils.data.DataLoader(training_set, batch_size=batch, shuffle=True)
-    validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=batch, shuffle=False)
+    validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=batch, shuffle=True)
     return train_loader, validation_loader
 
 
 if __name__ == '__main__':
 
-    train_loader, validation_loader = load_cifar_dataset(768)
+    train_loader, validation_loader = load_cifar_dataset(500)
 
-    classifier = Classifier([384, 114, 34, 10]).cuda()
-    AppLog.info(f'{summary(classifier, input_size=(128, 3, 32, 32))}')
+    classifier = Classifier([384, 114, 34, 10], 32, 2, 16, 256, 6).cuda()
+    AppLog.info(f'{summary(classifier, input_size=(500, 3, 32, 32))}')
     learning_rate = 0.001
     optimizer = torch.optim.Adam(classifier.parameters(), lr=learning_rate)
     loss_fn = nn.CrossEntropyLoss()
 
-    EPOCHS = 25
+    EPOCHS = 10
     best_vloss = float('inf')
     AppLog.info(f'Starting {EPOCHS} epochs with learning rate {learning_rate}')
 
@@ -72,6 +72,6 @@ if __name__ == '__main__':
 
         if avg_vloss < best_vloss:
             best_vloss = avg_vloss
-            torch.save(classifier.state_dict(), f'../models/classifier_{epoch + 1}')
+            torch.save((classifier.model_params, classifier.state_dict()), f'../models/classifier_{epoch + 1}')
 
     AppLog.info(f'Classifier best vloss: {best_vloss}, training done')
