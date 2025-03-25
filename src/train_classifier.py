@@ -28,7 +28,7 @@ if __name__ == '__main__':
 
     classifier = Classifier([384, 114, 34, 10], 32, 2, 16, 256, 6).cuda()
     AppLog.info(f'{summary(classifier, input_size=(500, 3, 32, 32))}')
-    learning_rate = 0.001
+    learning_rate = 0.0001
     optimizer = torch.optim.Adam(classifier.parameters(), lr=learning_rate)
     loss_fn = nn.CrossEntropyLoss()
 
@@ -41,6 +41,7 @@ if __name__ == '__main__':
         running_loss = 0.0
         train_batch_index = 0
         for img, label in train_loader:
+            optimizer.zero_grad()
             img = img.cuda()
             label = label.cuda()
             train_batch_index += 1
@@ -77,6 +78,6 @@ if __name__ == '__main__':
             best_vloss = avg_vloss
             save_time = datetime.now().strftime('%Y%m%dT%H%M%S')
             torch.save((classifier.model_params, classifier.state_dict()),
-                       f'../models/classifier_{epoch + 1}_{save_time}.pth')
+                       f'../models/classifier_{save_time}_{epoch + 1}.pth')
 
     AppLog.info(f'Classifier best vloss: {best_vloss}, training done. Model params: {classifier.model_params}')
