@@ -24,7 +24,7 @@ class AppLog:
             self._logger.setLevel(logging.INFO)  # Default level
 
             handler = RotatingFileHandler(
-                '../../log/application.log',
+                'C:/mywork/python/ImageEncoderDecoder/log/application.log',
                 maxBytes=5 * 1024 * 1024,  # 5MB
                 backupCount=5, encoding='utf-8'
             )
@@ -108,17 +108,3 @@ class AppLog:
         if cls._instance is None:
             cls._instance = cls()
         cls._instance._log('CRITICAL', message)
-
-
-# Decorator for logging function calls (optional)
-def log_function(level='INFO'):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            logger = AppLog()
-            result = func(*args, **kwargs)
-            return result
-
-        return wrapper
-
-    return decorator

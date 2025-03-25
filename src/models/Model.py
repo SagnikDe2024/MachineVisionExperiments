@@ -63,6 +63,7 @@ class Classifier(nn.Module):
         channel_ratio = (final_channels / starting_channels) ** (1 / (layers - 1))
         AppLog.info(f"Classifier channel upscale ratio: {channel_ratio}")
 
+
         channels_rest = [round(starting_channels * (channel_ratio) ** l) for l in range(layers)]
         # channels_rest.reverse()
         channels = [3, *channels_rest]
@@ -70,6 +71,7 @@ class Classifier(nn.Module):
         encoder = Encoder(starting_size, final_size, kernels, channels)
         first_dnn_layer = final_size ** 2 * final_channels
         dnn_layers = [first_dnn_layer, *dnn_layers]
+        AppLog.info(f"DNN layers: {dnn_layers}")
 
         self.encoder = encoder
         sequence = nn.Sequential()
