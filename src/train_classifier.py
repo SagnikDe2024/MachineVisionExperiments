@@ -75,7 +75,8 @@ if __name__ == '__main__':
 
         if avg_vloss < best_vloss:
             best_vloss = avg_vloss
+            save_time = datetime.now().strftime('%Y%m%dT%H%M%S')
             torch.save((classifier.model_params, classifier.state_dict()),
-                       f'../models/classifier_{epoch + 1}_{datetime.now().replace(microsecond=0).isoformat()}.pth')
+                       f'../models/classifier_{epoch + 1}_{save_time}.pth')
 
-    AppLog.info(f'Classifier best vloss: {best_vloss}, training done')
+    AppLog.info(f'Classifier best vloss: {best_vloss}, training done. Model params: {classifier.model_params}')
