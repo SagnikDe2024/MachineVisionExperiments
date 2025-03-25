@@ -24,7 +24,7 @@ class AppLog:
             self._logger.setLevel(logging.INFO)  # Default level
 
             handler = RotatingFileHandler(
-                '../log/application.log',
+                '../../log/application.log',
                 maxBytes=5 * 1024 * 1024,  # 5MB
                 backupCount=5, encoding='utf-8'
             )
