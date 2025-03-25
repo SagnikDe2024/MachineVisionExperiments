@@ -54,8 +54,8 @@ def generate_separated_kernels(k_size: int, input_channel: int, output_channel: 
 
     if add_padding:
         padding = k // 2
-        conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (k, 1), padding=(padding, 0))
-        conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (1, k), padding=(0, padding))
+        conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (k, 1), padding=(padding, 0), bias=False)
+        conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (1, k), padding=(0, padding), bias=False)
         return conv_layer_1, conv_layer_2
     else:
         conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (k, 1))
@@ -98,14 +98,16 @@ class Decoder(nn.Module):
         for layer in range(layers):
             up_size = upsized_channels[layer]
             ch_in = channels[layer]
-            ch_next = channels[layer + 1]
+            ch_out = channels[layer + 1]
             kernel_size = kernel_sizes[layer]
             k_1 = kernel_size - 1
             upsample_layer = nn.UpsamplingBilinear2d(size=up_size + k_1)
             sequence.append(upsample_layer)
-            conv_layer = nn.Conv2d(ch_in, ch_next, kernel_size) if kernel_size <= 3 else generate_separated_kernels(
-                kernel_size, ch_in, ch_next, r=9 / 25, add_padding=False)
+            conv_layer = nn.Conv2d(ch_in, ch_out, kernel_size,
+                                   bias=False) if kernel_size <= 3 else generate_separated_kernels(
+                kernel_size, ch_in, ch_out, r=9 / 25, add_padding=False)
             sequence.append(conv_layer)
+            sequence.append(nn.BatchNorm2d(ch_out))
             if layer < layers - 1:
                 activation_layer = nn.Mish()
                 sequence.append(activation_layer)
@@ -145,16 +147,17 @@ class Encoder(nn.Module):
             f'Layers = {layers}, downsampled_sizes = {downsampled_sizes}, channels = {channels}')
 
         for layer in range(layers):
-            chin, chout = channels[layer], channels[layer + 1]
+            ch_in, ch_out = channels[layer], channels[layer + 1]
             kernel_size = kernel_sizes[layer]
             # padding = kernel_size // 2
-            conv_layer1, conv_layer2 = generate_separated_kernels(kernel_size, chin, chout)
+            conv_layer1, conv_layer2 = generate_separated_kernels(kernel_size, ch_in, ch_out)
 
-            # conv_layer = nn.Conv2d(chin, chout, kernel_size, padding=padding)
+            # conv_layer = nn.Conv2d(ch_in, ch_out, kernel_size, padding=padding)
             activation_layer = nn.Mish()
             pooling_layer = nn.FractionalMaxPool2d(2, output_size=downsampled_sizes[layer])
             sequence.append(conv_layer1)
             sequence.append(conv_layer2)
+            sequence.append(nn.BatchNorm2d(ch_out))
             sequence.append(activation_layer)
             sequence.append(pooling_layer)
         self.sequence = nn.Sequential(*sequence)
