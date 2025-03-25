@@ -1,4 +1,3 @@
-from math import floor, log2
 from typing import List
 
 import torch
@@ -54,19 +53,23 @@ class Model(nn.Module):
 # when it will be used later.
 
 class Classifier(nn.Module):
-    def __init__(self, dnn_layers: List[int], starting_size=32, feature_upscale=4 / 3):
+    def __init__(self, dnn_layers: List[int], starting_size: int, final_size: int, starting_channels: int,
+                 final_channels: int, layers: int):
         super().__init__()
+        self.model_params = {'dnn_layers': dnn_layers, 'starting_size': starting_size, 'final_size': final_size,
+                             'starting_channels': starting_channels,
+                             'final_channels': final_channels, 'layers': layers}
 
-        final_downscaled_size = 2
-        final_channels = dnn_layers[0] / (final_downscaled_size ** 2)
-        image_downscale = 2 / 3
+        channel_ratio = (final_channels / starting_channels) ** (1 / (layers - 1))
+        AppLog.info(f"Classifier channel upscale ratio: {channel_ratio}")
 
-        layers_required = floor(log2(final_downscaled_size / starting_size) / log2(image_downscale))
-        channels_rest = [round(final_channels * (1 / feature_upscale) ** l) for l in range(layers_required)]
-        channels_rest.reverse()
+        channels_rest = [round(starting_channels * (channel_ratio) ** l) for l in range(layers)]
+        # channels_rest.reverse()
         channels = [3, *channels_rest]
-        kernels = [3 for _ in range(layers_required)]
-        encoder = Encoder(starting_size, final_downscaled_size, kernels, channels)
+        kernels = [3 for _ in range(layers)]
+        encoder = Encoder(starting_size, final_size, kernels, channels)
+        first_dnn_layer = final_size ** 2 * final_channels
+        dnn_layers = [first_dnn_layer, *dnn_layers]
 
         self.encoder = encoder
         sequence = nn.Sequential()
@@ -74,6 +77,7 @@ class Classifier(nn.Module):
         # nn.AdaptiveAvgPool2d((1,1))
         # Flatten the result from the encoder first
         sequence.append(nn.Flatten())
+
 
         for layer_dnn in range(len(dnn_layers) - 2):
             # Apply an activation
@@ -95,6 +99,6 @@ class Classifier(nn.Module):
 
 
 if __name__ == '__main__':
-    classifier = Classifier([384, 50, 10], 32, 4 / 3)
+    classifier = Classifier([384, 50, 10], 32, 2, 16, 128, 5)
 
     AppLog.info(f'{summary(classifier, input_size=(128, 3, 32, 32))}')
