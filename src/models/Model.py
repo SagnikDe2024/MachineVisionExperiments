@@ -54,7 +54,7 @@ class Model(nn.Module):
 
 class Classifier(nn.Module):
     def __init__(self, dnn_layers: List[int], starting_size: int, final_size: int, starting_channels: int,
-                 final_channels: int, cnn_layers: int):
+                 final_channels: int, cnn_layers: int) -> None:
         super().__init__()
         self.model_params = {'dnn_layers': dnn_layers, 'starting_size': starting_size, 'final_size': final_size,
                              'starting_channels': starting_channels,
