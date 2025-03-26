@@ -1,8 +1,12 @@
+import os
+import tempfile
 from datetime import datetime
 
 import ray
 import torch
 from ray import tune
+from ray.tune import Checkpoint
+from ray.tune import Result
 from ray.tune.schedulers import ASHAScheduler
 # from ray.train.torch import prepare_model
 # from ray.train.v2.torch.train_loop_utils import prepare_data_loader
@@ -121,6 +125,15 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
         # if ray.train.get_context().get_world_rank() == 0:
         #     AppLog.info(f'Metrics in an epoch {loss_metrics}')
 
+        with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
+            model_name_temp = f'{model_name}_{epoch + 1}.pth'
+            torch.save(
+                (classifier.model_params, classifier.state_dict()),
+                os.path.join(temp_checkpoint_dir, model_name_temp)
+            )
+            checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
+            tune.report({'v_loss': avg_vloss, 'epoch': (epoch + 1)}, checkpoint=checkpoint)
+
         if avg_vloss < best_vloss:
             best_vloss = avg_vloss
 
@@ -173,17 +186,27 @@ if __name__ == '__main__':
     # scaling_config = ScalingConfig(use_gpu=True)
     # run_config = RunConfig(storage_path='../models', name='tuned_classifier.pth')
     ray.init(local_mode=True, _temp_dir='C:/mywork/python/ImageEncoderDecoder/out')
-    trainable_with_resources = tune.with_resources(tune_classifier_aux, {"gpu": 0.9})
+    trainable_with_resources = tune.with_resources(tune_classifier_aux, {"cpu": 2, "gpu": 0.45})
+    scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=10,
+                              reduction_factor=3)
 
     search_space = {'learning_rate': tune.loguniform(0.01, 0.0001), 'dnn_layers': tune.quniform(3, 6, 1),
                     'final_size': tune.quniform(1, 4, 1), 'starting_channels': tune.qloguniform(12, 32, 4),
                     'final_channels': tune.qloguniform(128, 384, 64), 'cnn_layers': tune.quniform(3, 6, 1),
-                    'batch_size': tune.grid_search([500, 1000, 2000])}
+                    'batch_size': tune.choice([500, 1000, 2000, 2500])}
     tuner = tune.Tuner(trainable_with_resources, param_space=search_space,
-                       tune_config=tune.TuneConfig(num_samples=3, trial_dirname_creator=trail_dir_name,
-                                                   scheduler=ASHAScheduler(metric='v_loss', mode='min')))
-    results = tuner.fit()
-    AppLog.info(f"{results.get_best_result('v_loss')}")
+                       tune_config=tune.TuneConfig(num_samples=5, trial_dirname_creator=trail_dir_name,
+                                                   scheduler=scheduler))
+    results_grid = tuner.fit()
+    best_result: Result = results_grid.get_best_result(metric='v_loss', mode='min')
+    checkpoint = best_result.checkpoint
+    config = best_result.config
+    metrics = best_result.metrics
+
+    checkpoint_name = f'classifier_best.pth'
+    AppLog.info(f'Checkpoint: {checkpoint_name} saved with metric {metrics} used config {config}')
+    torch.save((checkpoint.model_params, checkpoint.state_dict()),
+               f'C:/mywork/python/ImageEncoderDecoder/models/{checkpoint_name}')
 
     # best_vloss, best_model_name, model_params = tune_classifier(0.001, 4, 2, 32, 192, 6, 500)
 

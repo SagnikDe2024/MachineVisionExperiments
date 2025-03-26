@@ -1,8 +1,10 @@
+import os
+
 import torch
 
 from src.models.Model import Classifier
-from src.utils.common_utils import AppLog
 from src.train_classifier import load_cifar_dataset
+from src.utils.common_utils import AppLog
 
 
 def show_images(img_b):
@@ -11,20 +13,21 @@ def show_images(img_b):
 
 
 def load_model(model_name):
-    classifier_params, model_state = torch.load(f'models/{model_name}')
+    classifier_params, model_state = torch.load(f'c:/mywork/python/ImageEncoderDecoder/models/{model_name}')
     saved_classifier = Classifier(**classifier_params)
     saved_classifier.load_state_dict(model_state)
     return saved_classifier
 
 
-def get_state_and_show():
-    saved_classifier = load_model('classifier_20250325T091707_17.pth')
+def get_state_and_show(file_name):
+    saved_classifier = load_model(file_name)
     saved_classifier = saved_classifier.cuda()
     saved_classifier.eval()
     tr, valid = load_cifar_dataset(1000)
     classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
     correct_pred = {classname: 0 for classname in classes}
     total_pred = {classname: 0 for classname in classes}
+    AppLog.info(f'Showing perf of {file_name}')
 
     with torch.no_grad():
         for img, labels in tr:
@@ -44,4 +47,12 @@ def get_state_and_show():
         AppLog.info(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
 
 
-get_state_and_show()
+def show_model_accuracy():
+    items = os.scandir('c:/mywork/python/ImageEncoderDecoder/models')
+    for item in items:
+        if item.is_file():
+            if item.name.endswith('.pth'):
+                get_state_and_show(item.name)
+
+
+show_model_accuracy()
