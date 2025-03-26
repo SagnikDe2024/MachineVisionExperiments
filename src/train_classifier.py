@@ -94,6 +94,8 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
     loss_fn = nn.CrossEntropyLoss()
 
     EPOCHS = 40
+    no_improvement = 0
+    loss_best_threshold = 1.2
     best_vloss = float('inf')
     AppLog.info(f'Starting {EPOCHS} epochs with learning rate {learning_rate}')
 
@@ -124,6 +126,15 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
             # torch.save((classifier.model_params, classifier.state_dict()), f'../models/{model_name}')
             torch.save((classifier.model_params, classifier.state_dict()),
                        f'C:/mywork/python/ImageEncoderDecoder/models/{model_name}')
+        elif avg_vloss > loss_best_threshold*best_vloss :
+            AppLog.warning(f'Early stopping at {epoch + 1} epochs as (validation loss = {avg_vloss})/(best validation loss = {best_vloss}) > {loss_best_threshold} ')
+            break
+        elif no_improvement > 5:
+            AppLog.warning(f'Early stopping at {epoch + 1} epochs as validation loss = {avg_vloss} has shown no improvement over {no_improvement} epochs')
+            break
+        else:
+            no_improvement += 1
+
     return best_vloss, best_model_name, classifier.model_params, trainable_params
 
 
