@@ -92,6 +92,9 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
     AppLog.info(f'{model_summary}')
     optimizer = torch.optim.Adam(classifier.parameters(), lr=learning_rate)
     loss_fn = nn.CrossEntropyLoss()
+    train_time = datetime.now().strftime('%Y%m%dT%H%M%S')
+    param_string = f'{classifier.model_params}'
+    model_name = f'classifier_{train_time}_{hash(param_string)}.pth'
 
     EPOCHS = 40
     no_improvement = 0
@@ -120,17 +123,18 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
 
         if avg_vloss < best_vloss:
             best_vloss = avg_vloss
-            save_time = datetime.now().strftime('%Y%m%dT%H%M%S')
-            model_name = f'classifier_{save_time}_{epoch + 1}.pth'
+
             best_model_name = model_name
             # torch.save((classifier.model_params, classifier.state_dict()), f'../models/{model_name}')
             torch.save((classifier.model_params, classifier.state_dict()),
                        f'C:/mywork/python/ImageEncoderDecoder/models/{model_name}')
-        elif avg_vloss > loss_best_threshold*best_vloss :
-            AppLog.warning(f'Early stopping at {epoch + 1} epochs as (validation loss = {avg_vloss})/(best validation loss = {best_vloss}) > {loss_best_threshold} ')
+        elif avg_vloss > loss_best_threshold * best_vloss:
+            AppLog.warning(
+                f'Early stopping at {epoch + 1} epochs as (validation loss = {avg_vloss})/(best validation loss = {best_vloss}) > {loss_best_threshold} ')
             break
         elif no_improvement > 5:
-            AppLog.warning(f'Early stopping at {epoch + 1} epochs as validation loss = {avg_vloss} has shown no improvement over {no_improvement} epochs')
+            AppLog.warning(
+                f'Early stopping at {epoch + 1} epochs as validation loss = {avg_vloss} has shown no improvement over {no_improvement} epochs')
             break
         else:
             no_improvement += 1
@@ -169,14 +173,14 @@ if __name__ == '__main__':
     # scaling_config = ScalingConfig(use_gpu=True)
     # run_config = RunConfig(storage_path='../models', name='tuned_classifier.pth')
     ray.init(local_mode=True, _temp_dir='C:/mywork/python/ImageEncoderDecoder/out')
-    trainable_with_resources = tune.with_resources(tune_classifier_aux, {"gpu": 0.25})
+    trainable_with_resources = tune.with_resources(tune_classifier_aux, {"gpu": 0.9})
 
     search_space = {'learning_rate': tune.loguniform(0.01, 0.0001), 'dnn_layers': tune.quniform(3, 6, 1),
                     'final_size': tune.quniform(1, 4, 1), 'starting_channels': tune.qloguniform(12, 32, 4),
                     'final_channels': tune.qloguniform(128, 384, 64), 'cnn_layers': tune.quniform(3, 6, 1),
-                    'batch_size': tune.grid_search([250, 500, 1000])}
+                    'batch_size': tune.grid_search([500, 1000, 2000])}
     tuner = tune.Tuner(trainable_with_resources, param_space=search_space,
-                       tune_config=tune.TuneConfig(num_samples=20, trial_dirname_creator=trail_dir_name,
+                       tune_config=tune.TuneConfig(num_samples=3, trial_dirname_creator=trail_dir_name,
                                                    scheduler=ASHAScheduler(metric='v_loss', mode='min')))
     results = tuner.fit()
     AppLog.info(f"{results.get_best_result('v_loss')}")
