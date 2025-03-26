@@ -36,11 +36,11 @@ class AppLog:
             handler.setFormatter(formatter)
 
             # Console handler
-            console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setFormatter(formatter)
+            # console_handler = logging.StreamHandler(sys.stdout)
+            # console_handler.setFormatter(formatter)
 
             self._logger.addHandler(handler)
-            self._logger.addHandler(console_handler)
+            # self._logger.addHandler(console_handler)
 
     @classmethod
     def set_level(cls, level: str):
