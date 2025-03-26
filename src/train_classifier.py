@@ -74,21 +74,9 @@ def train_one_epoch(epoch, EPOCHS, train_loader, validation_loader, model, optim
     return avg_vloss, avg_loss
 
 
-def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, final_channels, cnn_layers, batch_size):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def tune_classifier(learning_rate, classifier: Classifier, batch_size, device):
 
     train_loader, validation_loader = load_cifar_dataset(batch_size)
-
-    # train_loader = prepare_data_loader(train_loader)
-    # validation_loader = prepare_data_loader(validation_loader)
-
-    flattened_shape_params = final_channels * final_size * final_size
-    dnn_param_downscale_ratio = (10 / flattened_shape_params) ** (1 / dnn_layers)
-    dnn_params = [int(round(flattened_shape_params * dnn_param_downscale_ratio ** dnn_l, 0)) for dnn_l in
-                  range(1, dnn_layers + 1)]
-
-    classifier = Classifier(dnn_params, 32, final_size, starting_channels, final_channels, cnn_layers).to(device)
-    # classifier = ray.train.torch.prepare_model(classifier)
 
     model_summary = summary(classifier, input_size=(batch_size, 3, 32, 32))
     trainable_params = model_summary.trainable_params
@@ -100,7 +88,9 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
     param_string = f'{classifier.model_params}'
     model_name = f'classifier_{train_time}_{hash(param_string)}.pth'
 
-    EPOCHS = 40
+    classifier = classifier.to(device)
+
+    EPOCHS = 50
     no_improvement = 0
     loss_best_threshold = 1.2
     best_vloss = float('inf')
@@ -113,20 +103,9 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
         #     validation_loader.sampler.set_epoch(epoch)
         avg_vloss, avg_loss = train_one_epoch(epoch, EPOCHS, train_loader, validation_loader, classifier, optimizer,
                                               loss_fn, device)
-        # loss_metrics = {'avg_vloss': avg_vloss, 'avg_loss': avg_loss}
-        # with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
-        #     save_time = datetime.now().strftime('%Y%m%dT%H%M%S')
-        #     model_name = f'classifier_{save_time}_{epoch + 1}.pth'
-        #     torch.save(
-        #         (classifier.model_params, classifier.state_dict()),
-        #         os.path.join(temp_checkpoint_dir, model_name)
-        #     )
-        #     ray.train.report(loss_metrics, checkpoint_path=temp_checkpoint_dir)
-        # if ray.train.get_context().get_world_rank() == 0:
-        #     AppLog.info(f'Metrics in an epoch {loss_metrics}')
 
         with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
-            model_name_temp = f'{model_name}_{epoch + 1}.pth'
+            model_name_temp = f'classifier_tuned.pth'
             torch.save(
                 (classifier.model_params, classifier.state_dict()),
                 os.path.join(temp_checkpoint_dir, model_name_temp)
@@ -136,16 +115,16 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
 
         if avg_vloss < best_vloss:
             best_vloss = avg_vloss
+            AppLog.info(f'Not saving model at {epoch + 1} epoch, best vloss {best_vloss}')
 
-            best_model_name = model_name
-            # torch.save((classifier.model_params, classifier.state_dict()), f'../models/{model_name}')
-            torch.save((classifier.model_params, classifier.state_dict()),
-                       f'C:/mywork/python/ImageEncoderDecoder/models/{model_name}')
+            # best_model_name = model_name
+            # torch.save((classifier.model_params, classifier.state_dict()),
+            #            f'C:/mywork/python/ImageEncoderDecoder/models/{model_name}')
         elif avg_vloss > loss_best_threshold * best_vloss:
             AppLog.warning(
                 f'Early stopping at {epoch + 1} epochs as (validation loss = {avg_vloss})/(best validation loss = {best_vloss}) > {loss_best_threshold} ')
             break
-        elif no_improvement > 5:
+        elif no_improvement > 4:
             AppLog.warning(
                 f'Early stopping at {epoch + 1} epochs as validation loss = {avg_vloss} has shown no improvement over {no_improvement} epochs')
             break
@@ -156,19 +135,38 @@ def tune_classifier(learning_rate, dnn_layers, final_size, starting_channels, fi
 
 
 def tune_classifier_aux(config):
-    config['final_size'] = int(round(config['final_size'], 0))
-    config['dnn_layers'] = int(round(config['dnn_layers'], 0))
-    config['cnn_layers'] = int(round(config['cnn_layers'], 0))
-    config['starting_channels'] = int(config['starting_channels'])
-    config['final_channels'] = int(config['final_channels'])
+    classifier = create_classifier_from_config(config)
 
-    best_vloss, best_model_name, model_params, trainable_params = tune_classifier(**config)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    best_vloss, best_model_name, model_params, trainable_params = tune_classifier(config['learning_rate'], classifier,
+                                                                                  config['batch_size'], device)
     AppLog.info(
         f'Best vloss: {best_vloss}, with {trainable_params} params. Performance per param (Higher is better) = {1 / (trainable_params * best_vloss)}')
     AppLog.info(
         f'Classifier best vloss: {best_vloss}, training done. Model params: {model_params}. Saved model: {best_model_name} ')
 
     return {'v_loss': best_vloss}
+
+
+def create_classifier_from_config(classifier_config):
+    classifier_config['final_size'] = int(round(classifier_config['final_size'], 0))
+    classifier_config['dnn_layers'] = int(round(classifier_config['dnn_layers'], 0))
+    classifier_config['cnn_layers'] = int(round(classifier_config['cnn_layers'], 0))
+    classifier_config['starting_channels'] = int(classifier_config['starting_channels'])
+    classifier_config['final_channels'] = int(classifier_config['final_channels'])
+    layers = classifier_config['cnn_layers']
+    dnn_layers = classifier_config['dnn_layers']
+    channels = classifier_config['final_channels']
+    size = classifier_config['final_size']
+    starting_channels = classifier_config['starting_channels']
+
+    flattened_shape_params: int = channels * size * size
+    dnn_param_downscale_ratio = (10 / flattened_shape_params) ** (1 / dnn_layers)
+    dnn_params = [int(round(flattened_shape_params * dnn_param_downscale_ratio ** dnn_l, 0)) for dnn_l in
+                  range(1, dnn_layers + 1)]
+    classifier = Classifier(dnn_params, 32, size, starting_channels, channels, layers)
+    return classifier
 
 
 store = [0]
@@ -183,11 +181,11 @@ def trail_dir_name(params):
 
 
 if __name__ == '__main__':
-    # scaling_config = ScalingConfig(use_gpu=True)
-    # run_config = RunConfig(storage_path='../models', name='tuned_classifier.pth')
+
+
     ray.init(local_mode=True, _temp_dir='C:/mywork/python/ImageEncoderDecoder/out')
-    trainable_with_resources = tune.with_resources(tune_classifier_aux, {"cpu": 2, "gpu": 0.45})
-    scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=10,
+    trainable_with_resources = tune.with_resources(tune_classifier_aux, {'cpu': 1, "gpu": 0.3})
+    scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=10, grace_period=5,
                               reduction_factor=3)
 
     search_space = {'learning_rate': tune.loguniform(0.01, 0.0001), 'dnn_layers': tune.quniform(3, 6, 1),
@@ -195,19 +193,36 @@ if __name__ == '__main__':
                     'final_channels': tune.qloguniform(128, 384, 64), 'cnn_layers': tune.quniform(3, 6, 1),
                     'batch_size': tune.choice([500, 1000, 2000, 2500])}
     tuner = tune.Tuner(trainable_with_resources, param_space=search_space,
-                       tune_config=tune.TuneConfig(num_samples=5, trial_dirname_creator=trail_dir_name,
+                       tune_config=tune.TuneConfig(num_samples=1, trial_dirname_creator=trail_dir_name,
+                                                   max_concurrent_trials=3,
                                                    scheduler=scheduler))
     results_grid = tuner.fit()
     best_result: Result = results_grid.get_best_result(metric='v_loss', mode='min')
     checkpoint = best_result.checkpoint
+
+    best_config = best_result.config
+
+    model = None
+    device = torch.device('cpu')
+
+    with checkpoint.as_directory() as checkpoint_dir:
+        classifier_params, model_state = torch.load(os.path.join(checkpoint_dir, "classifier_tuned.pth"),map_location=device)
+        print(f'The dict is {classifier_params}')
+        model = Classifier(**classifier_params)
+        model.load_state_dict(model_state)
+
+
     config = best_result.config
     metrics = best_result.metrics
 
     checkpoint_name = f'classifier_best.pth'
+
+
+    AppLog.info(f'{checkpoint} with params: {model.model_params}')
+    AppLog.info(f'model = {model.state_dict()}')
     AppLog.info(f'Checkpoint: {checkpoint_name} saved with metric {metrics} used config {config}')
-    torch.save((checkpoint.model_params, checkpoint.state_dict()),
+
+    torch.save((model.model_params, model.state_dict()),
                f'C:/mywork/python/ImageEncoderDecoder/models/{checkpoint_name}')
 
-    # best_vloss, best_model_name, model_params = tune_classifier(0.001, 4, 2, 32, 192, 6, 500)
 
-    # AppLog.info(f'Classifier best vloss: {best_vloss}, training done. Model params: {model_params}. Saved model: {best_model_name} ')
