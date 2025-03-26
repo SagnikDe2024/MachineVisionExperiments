@@ -54,20 +54,19 @@ class Model(nn.Module):
 
 class Classifier(nn.Module):
     def __init__(self, dnn_layers: List[int], starting_size: int, final_size: int, starting_channels: int,
-                 final_channels: int, layers: int):
+                 final_channels: int, cnn_layers: int):
         super().__init__()
         self.model_params = {'dnn_layers': dnn_layers, 'starting_size': starting_size, 'final_size': final_size,
                              'starting_channels': starting_channels,
-                             'final_channels': final_channels, 'layers': layers}
+                             'final_channels': final_channels, 'cnn_layers': cnn_layers}
 
-        channel_ratio = (final_channels / starting_channels) ** (1 / (layers - 1))
+        channel_ratio = (final_channels / starting_channels) ** (1 / (cnn_layers - 1))
         AppLog.info(f"Classifier channel upscale ratio: {channel_ratio}")
 
-
-        channels_rest = [round(starting_channels * (channel_ratio) ** l) for l in range(layers)]
+        channels_rest = [round(starting_channels * channel_ratio ** l) for l in range(cnn_layers)]
         # channels_rest.reverse()
         channels = [3, *channels_rest]
-        kernels = [3 for _ in range(layers)]
+        kernels = [3 for _ in range(cnn_layers)]
         encoder = Encoder(starting_size, final_size, kernels, channels)
         first_dnn_layer = final_size ** 2 * final_channels
         dnn_layers = [first_dnn_layer, *dnn_layers]
