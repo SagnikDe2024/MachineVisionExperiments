@@ -6,6 +6,9 @@ from functools import wraps
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
+import torch
+from torch import nn
+
 
 class AppLog:
     _instance: Optional['AppLog'] = None
@@ -108,3 +111,9 @@ class AppLog:
         if cls._instance is None:
             cls._instance = cls()
         cls._instance._log('CRITICAL', message)
+
+# class Trainer:
+#     def __init__(self, model: nn.Module, optimizer: torch.optim.Optimizer):
+
+
+
