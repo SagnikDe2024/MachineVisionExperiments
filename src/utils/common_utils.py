@@ -16,7 +16,7 @@ class AppLog:
             cls._instance._initialize_logger()
         return cls._instance
 
-    def _initialize_logger(self):
+    def _initialize_logger(self) -> None:
         """Initialize the logger with rotating file handler"""
         if self._logger is None:
             self._logger = logging.getLogger('ApplicationLogger')
@@ -26,8 +26,8 @@ class AppLog:
             q_handle = QueueHandler(log_que)
 
             handler = RotatingFileHandler('C:/mywork/python/ImageEncoderDecoder/log/application.log',
-                maxBytes=3 * 1024 * 1024,  # 3MB
-                backupCount=5, encoding='utf-8')
+                                          maxBytes=3 * 1024 * 1024,  # 3MB
+                                          backupCount=5, encoding='utf-8')
 
             # Format for the log messages
             formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -41,18 +41,18 @@ class AppLog:
             self._logger.addHandler(q_handle)  # self._logger.addHandler(console_handler)
 
     @classmethod
-    def set_level(cls, level: str):
+    def set_level(cls, level: str) -> None:
         """Set the logging level"""
         if cls._instance is None:
             cls._instance = cls()
 
         level_map = {'DEBUG': logging.DEBUG, 'INFO': logging.INFO, 'WARNING': logging.WARNING, 'ERROR': logging.ERROR,
-            'CRITICAL': logging.CRITICAL}
+                     'CRITICAL': logging.CRITICAL}
 
         cls._instance._logger.setLevel(level_map.get(level.upper(), logging.INFO))
 
     @classmethod
-    def shut_down(cls):
+    def shut_down(cls) -> None:
         """Shuts down the logger"""
         if cls._instance is not None:
             try:
@@ -60,7 +60,7 @@ class AppLog:
             except AttributeError:
                 pass
 
-    def _log(self, level: str, message: str):
+    def _log(self, level: str, message: str) -> None:
         """Internal method to handle logging with caller information"""
         # Get caller frame information
         caller_frame = inspect.currentframe().f_back.f_back
@@ -82,31 +82,31 @@ class AppLog:
             self._logger.critical(full_message)
 
     @classmethod
-    def debug(cls, message: str):
+    def debug(cls, message: str) -> None:
         if cls._instance is None:
             cls._instance = cls()
         cls._instance._log('DEBUG', message)
 
     @classmethod
-    def info(cls, message: str):
+    def info(cls, message: str) -> None:
         if cls._instance is None:
             cls._instance = cls()
         cls._instance._log('INFO', message)
 
     @classmethod
-    def warning(cls, message: str):
+    def warning(cls, message: str) -> None:
         if cls._instance is None:
             cls._instance = cls()
         cls._instance._log('WARNING', message)
 
     @classmethod
-    def error(cls, message: str):
+    def error(cls, message: str) -> None:
         if cls._instance is None:
             cls._instance = cls()
         cls._instance._log('ERROR', message)
 
     @classmethod
-    def critical(cls, message: str):
+    def critical(cls, message: str) -> None:
         if cls._instance is None:
             cls._instance = cls()
         cls._instance._log('CRITICAL', message)
