@@ -85,7 +85,7 @@ def channel_kernel_compute(inp_out_channels: List[int], layers):
 
 
 class Decoder(nn.Module):
-    def __init__(self, input_size, output_size, kernel_sizes=None, channels=None, last_activation=nn.Tanh()):
+    def __init__(self, input_size, output_size, kernel_sizes=None, channels=None, last_activation=nn.Tanh()) -> None:
         super().__init__()
         size = input_size
         layers = len(kernel_sizes)
@@ -136,7 +136,7 @@ class Decoder(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_size, output_size, kernel_sizes=None, channels=None):
+    def __init__(self, input_size, output_size, kernel_sizes=None, channels=None) -> None:
         super().__init__()
 
         layers = len(kernel_sizes)
