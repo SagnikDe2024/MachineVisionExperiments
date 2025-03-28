@@ -2,7 +2,7 @@ import inspect
 import logging
 import os
 from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
-from queue import Queue
+from multiprocessing import Queue
 from typing import Optional
 
 
@@ -10,7 +10,7 @@ class AppLog:
     _instance: Optional['AppLog'] = None
     _logger: Optional[logging.Logger] = None
 
-    def __new__(cls):
+    def __new__(cls) :
         if cls._instance is None:
             cls._instance = super(AppLog, cls).__new__(cls)
             cls._instance._initialize_logger()
@@ -22,7 +22,7 @@ class AppLog:
             self._logger = logging.getLogger('ApplicationLogger')
             self._logger.setLevel(logging.INFO)  # Default level
 
-            log_que = Queue(maxsize=1024)
+            log_que = Queue(maxsize=1024*1024)
             q_handle = QueueHandler(log_que)
 
             handler = RotatingFileHandler('C:/mywork/python/ImageEncoderDecoder/log/application.log',
@@ -38,7 +38,8 @@ class AppLog:
             # console_handler = logging.StreamHandler(sys.stdout)
             # console_handler.setFormatter(formatter)
 
-            self._logger.addHandler(q_handle)  # self._logger.addHandler(console_handler)
+            # self._logger.addHandler(console_handler)
+            self._logger.addHandler(q_handle)
 
     @classmethod
     def set_level(cls, level: str) -> None:
