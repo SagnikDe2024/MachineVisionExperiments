@@ -9,7 +9,7 @@ from torchvision.transforms.v2.functional import pad_image, rotate, Interpolatio
 below = 0.01
 
 
-def conv_test(image_file: str):
+def conv_test(image_file: str) -> None:
     img = decode_image(image_file, mode=ImageReadMode.RGB)
 
     # transform = v2.Compose([v2.Resize((512, 512))])
@@ -33,7 +33,7 @@ def filter_before_writing(img):
         return img_f
 
 
-def perform_fft_and_save(img):
+def perform_fft_and_save(img) -> None:
     summed = img.sum()
     print(f'size = {img.shape} and sum = {summed}')
 
