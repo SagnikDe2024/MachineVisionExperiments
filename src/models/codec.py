@@ -36,8 +36,8 @@ CNNKernel = SquareKernel | SeparatedKernel
 # The 'a' will be calculated automatically. It will warn if the calculated 'a' falls outside [0,1].
 
 
-def generate_separated_kernels(k_size: int, input_channel: int, output_channel: int, a=(1 / 2), r=0.0,
-                               add_padding=True):
+def generate_separated_kernels(k_size: int, input_channel: int, output_channel: int, a: float=(1 / 2), r: float=0.0,
+                               add_padding: bool=True):
     c_in = input_channel
     c_out = output_channel
     t = c_out / c_in
@@ -76,7 +76,7 @@ def conv_kernel(k_size: int, input_channel: int, output_channel: int, separable,
             return nn.Conv2d(input_channel, output_channel, kernel_size=k_size, padding=k_size // 2)
 
 
-def channel_kernel_compute(inp_out_channels: List[int], layers):
+def channel_kernel_compute(inp_out_channels: List[int], layers: int):
     in_channel = inp_out_channels[0]
     out_channel = inp_out_channels[1]
     ratio = (out_channel / in_channel) ** (1 / layers)
