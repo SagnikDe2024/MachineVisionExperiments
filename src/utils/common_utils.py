@@ -1,13 +1,9 @@
 import inspect
 import logging
 import os
-import sys
-from functools import wraps
-from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
+from queue import Queue
 from typing import Optional
-
-import torch
-from torch import nn
 
 
 class AppLog:
@@ -26,9 +22,12 @@ class AppLog:
             self._logger = logging.getLogger('ApplicationLogger')
             self._logger.setLevel(logging.INFO)  # Default level
 
+            log_que = Queue(maxsize=1024)
+            q_handle = QueueHandler(log_que)
+
             handler = RotatingFileHandler(
                 'C:/mywork/python/ImageEncoderDecoder/log/application.log',
-                maxBytes=5 * 1024 * 1024,  # 5MB
+                maxBytes=3 * 1024 * 1024,  # 3MB
                 backupCount=5, encoding='utf-8'
             )
 
@@ -37,12 +36,13 @@ class AppLog:
                 '%(asctime)s - %(levelname)s - %(message)s'
             )
             handler.setFormatter(formatter)
+            self._q_listener = QueueListener(log_que, handler)
 
             # Console handler
             # console_handler = logging.StreamHandler(sys.stdout)
             # console_handler.setFormatter(formatter)
 
-            self._logger.addHandler(handler)
+            self._logger.addHandler(q_handle)
             # self._logger.addHandler(console_handler)
 
     @classmethod
@@ -60,6 +60,12 @@ class AppLog:
         }
 
         cls._instance._logger.setLevel(level_map.get(level.upper(), logging.INFO))
+
+    @classmethod
+    def shut_down(cls):
+        """Shuts down the logger"""
+        if cls._instance is not None:
+            cls._instance._q_listener.stop()
 
     def _log(self, level: str, message: str):
         """Internal method to handle logging with caller information"""
@@ -111,9 +117,4 @@ class AppLog:
         if cls._instance is None:
             cls._instance = cls()
         cls._instance._log('CRITICAL', message)
-
-# class Trainer:
-#     def __init__(self, model: nn.Module, optimizer: torch.optim.Optimizer):
-
-
 
