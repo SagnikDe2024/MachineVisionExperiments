@@ -6,7 +6,7 @@ from torchvision.io import write_png
 
 
 class DiffuseForwardPass(object):
-    def __init__(self):
+    def __init__(self) -> None:
         self.noise = 0.1
 
 
