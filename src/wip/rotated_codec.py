@@ -1,12 +1,12 @@
+import os
+import tempfile
 from multiprocessing import Process
 from queue import Queue
 
 import torch
-import tempfile
 from ray import tune
 from ray.tune import Checkpoint
-import os
-
+from torch import nn
 from torchinfo import summary
 
 from src.utils.common_utils import AppLog
@@ -96,7 +96,7 @@ class TrainModel:
 class ExperimentModels:
 
     @classmethod
-    def save_checkpoint(cls,avg_vloss, classifier, epoch):
+    def save_checkpoint(cls,avg_vloss : float, classifier : nn.Module, epoch : int):
         with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
             model_name_temp = f'classifier_tuned.pth'
             torch.save(
@@ -131,19 +131,21 @@ class ExperimentModels:
         model = self.model_creator_func(model_config)
         train_loader, validation_loader = self.loader_func(batch_size)
         model_summary = summary(model, input_size=(batch_size, 3, 32, 32), verbose=0)
-        AppLog.info(f'{model_summary}')
 
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        loss_fn = nn.CrossEntropyLoss()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        trainable_params = model_summary.trainable_params()
+        AppLog.info(f'There are {trainable_params} trainable parameters.')
 
-        train_model = TrainModel(self.send_checkpoint,model, train_loader, validation_loader)
+        train_model = TrainModel(self.send_checkpoint, model, loss_fn, optimizer, device, 0, 50)
+        best_vloss, model_params = train_model.train_and_evaluate(train_loader, validation_loader)
+        AppLog.info(
+            f'Best vloss: {best_vloss}, with {trainable_params} params. Performance per param (Higher is better) = {1 / (trainable_params * best_vloss)}')
+        AppLog.info(
+            f'Classifier best vloss: {best_vloss}, training done. Model params: {model_params}.')
+        return {'v_loss': best_vloss}
 
-
-
-
-
-
-
-
-
-
-
-
+    def shutdown_checkpoint(self):
+        self.save_process.close()
+        self.save_process.join()
