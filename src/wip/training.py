@@ -90,42 +90,34 @@ class TrainModel:
 
             self.current_epoch += 1
 
-        return self.best_vloss,  self.model.model_params
+        return self.best_vloss, self.model.model_params
 
 
 class ExperimentModels:
 
     @classmethod
-    def save_checkpoint(cls,avg_vloss : float, classifier : nn.Module, epoch : int):
+    def save_checkpoint(cls, avg_vloss: float, classifier: nn.Module, epoch: int):
         with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
             model_name_temp = f'classifier_tuned.pth'
-            torch.save(
-                (classifier.model_params, classifier.state_dict()),
-                os.path.join(temp_checkpoint_dir, model_name_temp)
-            )
+            torch.save((classifier.model_params, classifier.state_dict()),
+                os.path.join(temp_checkpoint_dir, model_name_temp))
             checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
             tune.report({'v_loss': avg_vloss, 'epoch': (epoch + 1)}, checkpoint=checkpoint)
 
     @classmethod
-    def queued_result(cls,q : Queue):
+    def queued_result(cls, q: Queue):
         avg_vloss, classifier, epoch = q.get()
         cls.save_checkpoint(avg_vloss, classifier, epoch)
 
-
-
-    def __init__(self,model_creator_func,loader_func):
-
+    def __init__(self, model_creator_func, loader_func):
         self.model_creator_func = model_creator_func
         self.loader_func = loader_func
         self.serialization_queue = Queue(maxsize=40)
         self.save_process = Process(target=self.queued_result, args=(self.serialization_queue,))
         self.save_process.start()
 
-
-
-    def send_checkpoint(self,check_params):
+    def send_checkpoint(self, check_params):
         self.serialization_queue.put(check_params)
-
 
     def execute_single_experiment(self, model_config, batch_size, lr):
         model = self.model_creator_func(model_config)
@@ -142,9 +134,8 @@ class ExperimentModels:
         best_vloss, model_params = train_model.train_and_evaluate(train_loader, validation_loader)
         AppLog.info(
             f'Best vloss: {best_vloss}, with {trainable_params} params. Performance per param (Higher is better) = {1 / (trainable_params * best_vloss)}')
-        AppLog.info(
-            f'Classifier best vloss: {best_vloss}, training done. Model params: {model_params}.')
-        return {'v_loss': best_vloss}
+        AppLog.info(f'Classifier best vloss: {best_vloss}, training done. Model params: {model_params}.')
+        return {'v_loss': best_vloss, 'trainable_params': trainable_params, 'model_params': model_params}
 
     def shutdown_checkpoint(self):
         self.save_process.close()
