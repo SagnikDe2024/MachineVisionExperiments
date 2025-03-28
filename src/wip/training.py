@@ -12,7 +12,7 @@ from src.utils.common_utils import AppLog
 
 
 class TrainModel:
-    def __init__(self, save_checkpoint_epoch, model, loss_fn, optimizer, device, starting_epoch, ending_epoch):
+    def __init__(self, save_checkpoint_epoch, model, loss_fn, optimizer, device, starting_epoch, ending_epoch) -> None:
         self.save_checkpoint_epoch = save_checkpoint_epoch
         self.model = model
         self.loss_fn = loss_fn
@@ -97,13 +97,13 @@ class TrainModel:
 
 class ExperimentModels:
 
-    def __init__(self, model_creator_func, loader_func):
+    def __init__(self, model_creator_func, loader_func) -> None:
         self.model_creator_func = model_creator_func
         self.loader_func = loader_func
 
         # self.save_process = Process(target=self.queued_result, args=(serialization_queue,))  # self.save_process.start()
 
-    def save_checkpoint(self, avg_vloss: float, classifier: nn.Module, epoch: int):
+    def save_checkpoint(self, avg_vloss: float, classifier: nn.Module, epoch: int) -> None:
         with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
             model_name_temp = f'classifier_tuned.pth'
             torch.save((classifier.model_params, classifier.state_dict()),
@@ -111,7 +111,7 @@ class ExperimentModels:
             checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
             tune.report({'v_loss': avg_vloss, 'epoch': (epoch + 1)}, checkpoint=checkpoint)
 
-    def queued_result(self, q: Queue):
+    def queued_result(self, q: Queue) -> None:
         avg_vloss, classifier, epoch = q.get()
         self.save_checkpoint(avg_vloss, classifier, epoch)
 
