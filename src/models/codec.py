@@ -49,7 +49,7 @@ def generate_separated_kernels(k_size: int, input_channel: int, output_channel: 
     c_intermediate = int(round((c_in ** (1 - a) * c_out ** a), 0))
     AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
     if not (0 <= a <= 1):
-        AppLog.warn(
+        AppLog.warning(
             f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
 
     if add_padding:
