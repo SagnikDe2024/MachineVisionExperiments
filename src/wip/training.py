@@ -22,7 +22,7 @@ class TrainModel:
         self.ending_epoch = ending_epoch
         self.best_vloss = float('inf')
 
-    def train(self, train_loader):
+    def train(self, train_loader) -> float:
         self.model.train(True)
         running_loss = 0.0
         train_batch_index = 0
@@ -43,7 +43,7 @@ class TrainModel:
         avg_loss = running_loss / train_batch_index
         return avg_loss
 
-    def evaluate(self, validation_loader):
+    def evaluate(self, validation_loader) -> float:
         self.model.eval()
         running_vloss = 0.0
         valid_batch_index = 0
