@@ -7,7 +7,7 @@ from src.train_classifier import load_cifar_dataset
 from src.utils.common_utils import AppLog
 
 
-def show_images(img_b):
+def show_images(img_b) -> None:
     img = img_b.numpy().transpose((1, 2, 0))
     un_normal = img * 0.5 + 0.5
 
@@ -19,7 +19,7 @@ def load_model(model_name):
     return saved_classifier
 
 
-def get_state_and_show(file_name):
+def get_state_and_show(file_name) -> None:
     saved_classifier = load_model(file_name)
     saved_classifier = saved_classifier.cuda()
     saved_classifier.eval()
@@ -47,7 +47,7 @@ def get_state_and_show(file_name):
         AppLog.info(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
 
 
-def show_model_accuracy():
+def show_model_accuracy() -> None:
     items = os.scandir('c:/mywork/python/ImageEncoderDecoder/models')
     for item in items:
         if item.is_file():
