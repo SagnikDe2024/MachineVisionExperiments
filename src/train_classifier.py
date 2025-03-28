@@ -3,6 +3,7 @@ import os
 import tempfile
 from datetime import datetime
 
+import numpy as np
 import ray
 import torch
 from ray import tune
@@ -25,7 +26,7 @@ from src.wip.training import ExperimentModels
 # import ray.train.torch
 
 
-def load_cifar_dataset(batch=500):
+def load_cifar_dataset(batch: int=500):
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
 
     training_set = CIFAR10(root='C:/mywork/python/ImageEncoderDecoder/data/CIFAR/train', train=True, download=True,
@@ -41,7 +42,7 @@ def load_cifar_dataset(batch=500):
     return train_loader, validation_loader
 
 
-def train_one_epoch(epoch, EPOCHS, train_loader, validation_loader, model, optimizer, loss_fn, device):
+def train_one_epoch(epoch: int, EPOCHS: int, train_loader, validation_loader, model: Classifier, optimizer: torch.optim.adam.Adam, loss_fn: torch.nn.modules.loss.CrossEntropyLoss, device):
     model.train(True)
     running_loss = 0.0
     train_batch_index = 0
@@ -80,7 +81,7 @@ def train_one_epoch(epoch, EPOCHS, train_loader, validation_loader, model, optim
     return avg_vloss, avg_loss
 
 
-def tune_classifier(learning_rate, classifier: Classifier, batch_size, device):
+def tune_classifier(learning_rate, classifier: Classifier, batch_size, device: torch.device):
     train_loader, validation_loader = load_cifar_dataset(batch_size)
 
     model_summary = summary(classifier, input_size=(batch_size, 3, 32, 32), verbose=0)
@@ -133,7 +134,7 @@ def tune_classifier(learning_rate, classifier: Classifier, batch_size, device):
     return best_vloss, best_model_name, classifier.model_params, trainable_params
 
 
-async def save_checkpoint(avg_vloss, classifier, epoch) -> None:
+async def save_checkpoint(avg_vloss: float, classifier: Classifier, epoch: int) -> None:
     with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
         model_name_temp = f'classifier_tuned.pth'
         torch.save((classifier.model_params, classifier.state_dict()),
@@ -157,7 +158,7 @@ def tune_classifier_aux(config):
     return {'v_loss': best_vloss}
 
 
-def create_classifier_from_config(classifier_config):
+def create_classifier_from_config(classifier_config) -> Classifier:
     classifier_config['final_size'] = int(round(classifier_config['final_size'], 0))
     classifier_config['dnn_layers'] = int(round(classifier_config['dnn_layers'], 0))
     classifier_config['cnn_layers'] = int(round(classifier_config['cnn_layers'], 0))
@@ -210,10 +211,13 @@ if __name__ == '__main__':
 
     optuna_search = OptunaSearch(metric='v_loss', mode='min')
 
-    search_space = {'learning_rate': tune.loguniform(0.0001, 0.01), 'dnn_layers': tune.quniform(3, 6, 1),
-                    'final_size': tune.quniform(1, 4, 1), 'starting_channels': tune.qloguniform(12, 32, 4),
-                    'final_channels': tune.qloguniform(128, 384, 64), 'cnn_layers': tune.quniform(3, 6, 1),
-                    'batch_size': tune.choice([500, 1000, 2000, 2500])}
+    search_space = {'learning_rate'    : tune.loguniform(0.0001, 0.01),
+                    'dnn_layers'       : tune.quniform(4, 7, 1),
+                    'final_size'       : tune.quniform(1, 4, 1),
+                    'starting_channels': tune.qloguniform(12, 32, 4),
+                    'final_channels'   : tune.sample_from(lambda spec : np.random.uniform(256/(spec.config.final_size**2),2048/(spec.config.final_size**2))),
+                    'cnn_layers'       : tune.quniform(3, 6, 1),
+                    'batch_size'       : tune.choice([125,250, 500, 1000, 2000])}
 
     experiment = ExperimentModels(create_classifier_from_config, load_cifar_dataset)
     tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
@@ -224,7 +228,7 @@ if __name__ == '__main__':
     # tune.Tuner.can_restore()
 
     tuner = tune.Tuner(trainable_with_resources, param_space=search_space,
-                       tune_config=tune.TuneConfig(num_samples=1, trial_dirname_creator=trail_dir_name,
+                       tune_config=tune.TuneConfig(num_samples=100, trial_dirname_creator=trail_dir_name,
                                                    max_concurrent_trials=3, search_alg=optuna_search,
                                                    scheduler=scheduler))
     results_grid = tuner.fit()
@@ -252,7 +256,7 @@ if __name__ == '__main__':
     checkpoint_name = f'classifier_best.pth'
 
     AppLog.info(f'{checkpoint} with params: {model.model_params}')
-    AppLog.info(f'model = {model.state_dict()}')
+    # AppLog.info(f'model = {model.state_dict()}')
     AppLog.info(f'Checkpoint: {checkpoint_name} saved with metric {metrics} used config {config}')
 
     torch.save((model.model_params, model.state_dict()),
