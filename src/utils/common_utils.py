@@ -25,16 +25,12 @@ class AppLog:
             log_que = Queue(maxsize=1024)
             q_handle = QueueHandler(log_que)
 
-            handler = RotatingFileHandler(
-                'C:/mywork/python/ImageEncoderDecoder/log/application.log',
+            handler = RotatingFileHandler('C:/mywork/python/ImageEncoderDecoder/log/application.log',
                 maxBytes=3 * 1024 * 1024,  # 3MB
-                backupCount=5, encoding='utf-8'
-            )
+                backupCount=5, encoding='utf-8')
 
             # Format for the log messages
-            formatter = logging.Formatter(
-                '%(asctime)s - %(levelname)s - %(message)s'
-            )
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
             handler.setFormatter(formatter)
             self._q_listener = QueueListener(log_que, handler)
 
@@ -42,8 +38,7 @@ class AppLog:
             # console_handler = logging.StreamHandler(sys.stdout)
             # console_handler.setFormatter(formatter)
 
-            self._logger.addHandler(q_handle)
-            # self._logger.addHandler(console_handler)
+            self._logger.addHandler(q_handle)  # self._logger.addHandler(console_handler)
 
     @classmethod
     def set_level(cls, level: str):
@@ -51,13 +46,8 @@ class AppLog:
         if cls._instance is None:
             cls._instance = cls()
 
-        level_map = {
-            'DEBUG': logging.DEBUG,
-            'INFO': logging.INFO,
-            'WARNING': logging.WARNING,
-            'ERROR': logging.ERROR,
-            'CRITICAL': logging.CRITICAL
-        }
+        level_map = {'DEBUG': logging.DEBUG, 'INFO': logging.INFO, 'WARNING': logging.WARNING, 'ERROR': logging.ERROR,
+            'CRITICAL': logging.CRITICAL}
 
         cls._instance._logger.setLevel(level_map.get(level.upper(), logging.INFO))
 
@@ -65,7 +55,10 @@ class AppLog:
     def shut_down(cls):
         """Shuts down the logger"""
         if cls._instance is not None:
-            cls._instance._q_listener.stop()
+            try:
+                cls._instance._q_listener.stop()
+            except AttributeError:
+                pass
 
     def _log(self, level: str, message: str):
         """Internal method to handle logging with caller information"""
@@ -117,4 +110,3 @@ class AppLog:
         if cls._instance is None:
             cls._instance = cls()
         cls._instance._log('CRITICAL', message)
-
