@@ -9,7 +9,7 @@ from src.utils.common_utils import AppLog
 
 
 class Model(nn.Module):
-    def __init__(self, encoder: Encoder, decoder: Decoder):
+    def __init__(self, encoder: Encoder, decoder: Decoder) -> None:
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -34,7 +34,7 @@ class Model(nn.Module):
         return mu, log_var, decoded, z_sample_2_mu
 
     # I believe that the decoder can be fine-tuned with generated latents and so the encoder is frozen
-    def encoder_eval_mode(self):
+    def encoder_eval_mode(self) -> None:
         self.encoder.eval()
 
     # Generate sample like a given sample
