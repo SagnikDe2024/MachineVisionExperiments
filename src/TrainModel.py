@@ -7,7 +7,7 @@ from src.models.codec import Encoder, Decoder
 from src.train_classifier import load_cifar_dataset
 
 
-def show_image(img_data):
+def show_image(img_data) -> None:
     transposed = torch.permute(img_data, (1, 2, 0)).numpy()
     plt.imshow(transposed)
     plt.show()
