@@ -1,4 +1,3 @@
-import asyncio
 import os
 import tempfile
 from datetime import datetime
@@ -10,10 +9,6 @@ from ray import tune
 from ray.tune import Checkpoint, Result
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.optuna import OptunaSearch
-# from ray.train.torch import prepare_model
-# from ray.train.v2.torch.train_loop_utils import prepare_data_loader
-from torch import nn
-from torchinfo import summary
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import transforms
 
@@ -41,103 +36,6 @@ def load_cifar_dataset(batch: int = 500):
 	return train_loader, validation_loader
 
 
-def train_one_epoch(epoch: int, EPOCHS: int, train_loader, validation_loader, model: Classifier,
-					optimizer: torch.optim.adam.Adam, loss_fn: torch.nn.modules.loss.CrossEntropyLoss, device):
-	model.train(True)
-	running_loss = 0.0
-	train_batch_index = 0
-	for img, label in train_loader:
-		img, label = img.to(device), label.to(device)
-		optimizer.zero_grad()
-		train_batch_index += 1
-
-		raw_prob, prob = model.forward(img)
-		loss = loss_fn(raw_prob, label)
-		loss.backward()
-		optimizer.step()
-		running_loss += loss.item()
-		AppLog.info(
-				f'Epoch [{epoch + 1}/{EPOCHS}]: Batch [{train_batch_index}]: Loss: {running_loss / train_batch_index}')
-	avg_loss = running_loss / train_batch_index
-
-	# Evaluate the classifier.
-	model.eval()
-	running_vloss = 0.0
-	valid_batch_index = 0
-	with torch.no_grad():
-		for img, label in validation_loader:
-			img, label = img.to(device), label.to(device)
-			raw_prob, prob = model.forward(img)
-			v_loss = loss_fn(raw_prob, label)
-			running_vloss += v_loss.item()
-			valid_batch_index += 1
-			AppLog.info(
-					f'Epoch [{epoch + 1}/{EPOCHS}]: V_Batch [{valid_batch_index}]: V_Loss: '
-                    f'{running_vloss / (valid_batch_index)}')
-
-	avg_vloss = running_vloss / valid_batch_index
-
-	AppLog.info(f'Epoch {epoch + 1}: Training loss = {avg_loss}, Validation Loss = {avg_vloss}')
-
-	return avg_vloss, avg_loss
-
-
-def tune_classifier(learning_rate, classifier: Classifier, batch_size, device: torch.device):
-	train_loader, validation_loader = load_cifar_dataset(batch_size)
-
-	model_summary = summary(classifier, input_size=(batch_size, 3, 32, 32), verbose=0)
-	trainable_params = model_summary.trainable_params
-
-	AppLog.info(f'{model_summary}')
-	optimizer = torch.optim.Adam(classifier.parameters(), lr=learning_rate)
-	loss_fn = nn.CrossEntropyLoss()
-	train_time = datetime.now().strftime('%Y%m%dT%H%M%S')
-	param_string = f'{classifier.model_params}'
-	model_name = f'classifier_{train_time}_{hash(param_string)}.pth'
-
-	classifier = classifier.to(device)
-
-	EPOCHS = 50
-	no_improvement = 0
-	loss_best_threshold = 1.2
-	best_vloss = float('inf')
-	AppLog.info(f'Starting {EPOCHS} epochs with learning rate {learning_rate}')
-	# loop = asyncio.get_event_loop()
-	# checkpoint_tasks = set()
-	best_model_name = ''
-	for epoch in range(EPOCHS):
-		# if ray.train.get_context().get_world_size() > 1:
-		#     train_loader.sampler.set_epoch(epoch)
-		#     validation_loader.sampler.set_epoch(epoch)
-		avg_vloss, avg_loss = train_one_epoch(epoch, EPOCHS, train_loader, validation_loader, classifier, optimizer,
-											  loss_fn, device)
-
-		asyncio.run(save_checkpoint(avg_vloss, classifier, epoch))
-		# checkpoint_tasks.add(check_point_create)
-
-		if avg_vloss < best_vloss:
-			best_vloss = avg_vloss
-			AppLog.info(f'Not saving model at {epoch + 1} epoch, best vloss {best_vloss}')
-
-			# best_model_name = model_name  # torch.save((classifier.model_params, classifier.state_dict()),
-        #            f'C:/mywork/python/ImageEncoderDecoder/models/{model_name}')
-		elif avg_vloss > loss_best_threshold * best_vloss:
-			AppLog.warning(
-					f'Early stopping at {epoch + 1} epochs as (validation loss = {avg_vloss})/(best validation loss = '
-                    f'{best_vloss}) > {loss_best_threshold} ')
-			break
-		elif no_improvement > 4:
-			AppLog.warning(
-					f'Early stopping at {epoch + 1} epochs as validation loss = {avg_vloss} has shown no im'
-                    f'provement over {no_improvement} epochs')
-			break
-		else:
-			no_improvement += 1
-	# checkpoint_tasks
-
-	return best_vloss, best_model_name, classifier.model_params, trainable_params
-
-
 async def save_checkpoint(avg_vloss: float, classifier: Classifier, epoch: int) -> None:
 	with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
 		model_name_temp = f'classifier_tuned.pth'
@@ -145,23 +43,6 @@ async def save_checkpoint(avg_vloss: float, classifier: Classifier, epoch: int) 
 				   os.path.join(temp_checkpoint_dir, model_name_temp))
 		checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
 		tune.report({'v_loss': avg_vloss, 'epoch': (epoch + 1)}, checkpoint=checkpoint)
-
-
-def tune_classifier_aux(config):
-	classifier = create_classifier_from_config(config)
-
-	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-	best_vloss, best_model_name, model_params, trainable_params = tune_classifier(config['learning_rate'], classifier,
-																				  config['batch_size'], device)
-	AppLog.info(
-			f'Best vloss: {best_vloss}, with {trainable_params} params. Performance per param (Highe'
-            f'r is better) = {1 / (trainable_params * best_vloss)}')
-	AppLog.info(
-			f'Classifier best vloss: {best_vloss}, training done. Model params: {model_params}. Save'
-            f'd model: {best_model_name} ')
-
-	return {'v_loss': best_vloss}
 
 
 def create_classifier_from_config(classifier_config) -> Classifier:
@@ -201,9 +82,8 @@ def tune_with_exp(exp_model: ExperimentModels, config):
 	trainable_params = result['trainable_params']
 	model_params = result['model_params']
 
-	AppLog.info(
-			f'Best vloss: {best_vloss}, with {trainable_params} params. Performance per param (Higher is b'
-            f'etter) = {1 / (trainable_params * best_vloss)}')
+	AppLog.info(f'Best vloss: {best_vloss}, with {trainable_params} params. Performance per param (Higher is b'
+				f'etter) = {1 / (trainable_params * best_vloss)}')
 	AppLog.info(f'Classifier best vloss: {best_vloss}, training done. Model params: {model_params}.')
 
 	return {'v_loss': best_vloss}
