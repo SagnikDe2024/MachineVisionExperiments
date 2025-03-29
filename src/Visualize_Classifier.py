@@ -54,4 +54,7 @@ def show_model_accuracy() -> None:
 			if item.name.endswith('.pth'):
 				get_state_and_show(item.name)
 
-# show_model_accuracy()
+	AppLog.shut_down()
+
+if __name__ == '__main__':
+	show_model_accuracy()
