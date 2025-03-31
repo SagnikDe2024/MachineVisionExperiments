@@ -98,7 +98,7 @@ if __name__ == '__main__':
 
 	optuna_search = OptunaSearch(metric='v_loss', mode='min')
 
-	search_space = {'learning_rate'    : tune.loguniform(0.0001, 0.01),
+	search_space = {'learning_rate'    : tune.loguniform(0.00001, 0.0075),
 					'dnn_layers'       : tune.quniform(4, 7, 1),
 					'final_size'       : tune.quniform(1, 4, 1),
 					'starting_channels': tune.qloguniform(12, 32, 4),
@@ -106,7 +106,7 @@ if __name__ == '__main__':
 						lambda spec: np.random.uniform(256 / (spec.config.final_size ** 2),
 													   2048 / (spec.config.final_size ** 2))),
 					'cnn_layers'       : tune.quniform(3, 6, 1),
-					'batch_size'       : tune.choice([125, 250, 500, 1000, 2000])}
+					'batch_size'       : tune.choice([100,125, 250, 500, 1000])}
 
 	experiment = ExperimentModels(create_classifier_from_config, load_cifar_dataset)
 	tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)

@@ -48,11 +48,13 @@ def get_state_and_show(file_name) -> None:
 
 
 def show_model_accuracy() -> None:
-	items = os.scandir('c:/mywork/python/ImageEncoderDecoder/models')
-	for item in items:
-		if item.is_file():
-			if item.name.endswith('.pth'):
-				get_state_and_show(item.name)
+	get_state_and_show('classifier_best.pth')
+
+	# items = os.scandir('c:/mywork/python/ImageEncoderDecoder/models')
+	# for item in items:
+	# 	if item.is_file():
+	# 		if item.name.endswith('.pth'):
+	# 			get_state_and_show(item.name)
 
 	AppLog.shut_down()
 

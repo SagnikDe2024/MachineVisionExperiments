@@ -37,7 +37,7 @@ CNNKernel = SquareKernel | SeparatedKernel
 
 
 def generate_separated_kernels(k_size: int, input_channel: int, output_channel: int, a: float = (1 / 2), r: float = 0.0,
-							   add_padding: bool = True):
+							   add_padding: bool = True, bias=False, stride: int = 1):
 	c_in = input_channel
 	c_out = output_channel
 	t = c_out / c_in
@@ -51,16 +51,11 @@ def generate_separated_kernels(k_size: int, input_channel: int, output_channel: 
 	if not (0 <= a <= 1):
 		AppLog.warning(
 				f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
+	padding = k // 2 if add_padding else 0
 
-	if add_padding:
-		padding = k // 2
-		conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (k, 1), padding=(padding, 0), bias=False)
-		conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (1, k), padding=(0, padding), bias=False)
-		return conv_layer_1, conv_layer_2
-	else:
-		conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (k, 1))
-		conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (1, k))
-		return conv_layer_1, conv_layer_2
+	conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (k, 1), padding=(padding, 0), bias=bias,stride=stride)
+	conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (1, k), padding=(0, padding), bias=bias,stride=stride)
+	return conv_layer_1, conv_layer_2
 
 
 def conv_kernel(k_size: int, input_channel: int, output_channel: int, separable, ratio):
