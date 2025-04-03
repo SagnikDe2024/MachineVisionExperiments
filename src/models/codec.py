@@ -44,7 +44,7 @@ def generate_separated_kernels(k_size: int, input_channel: int, output_channel: 
 	k = k_size
 
 	if 0 < r < 1 and t != 1:
-		a = log2(c_in * k ** 2 * r + r - 1) / log2(t) - log2(c_in * k * (t + 1) + 1) / log2(t) + 1
+		a = log2((t + 1)/(t*r*k)) / log2(1/t)
 
 	c_intermediate = int(round((c_in ** (1 - a) * c_out ** a), 0))
 	AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
@@ -79,55 +79,7 @@ def channel_kernel_compute(inp_out_channels: List[int], layers: int):
 	return channels
 
 
-class Decoder(nn.Module):
-	def __init__(self, input_size, output_size, kernel_sizes=None, channels=None, last_activation=nn.Tanh()) -> None:
-		super().__init__()
-		size = input_size
-		layers = len(kernel_sizes)
-		upscale_ratio = (output_size / size) ** (1 / layers)
-		upsized_channels = [int(round(size * upscale_ratio ** (layer + 1), 0)) for layer in range(layers)]
-		AppLog.info(
-				f'Layers = {layers}, upsizing without kernel included = {upsized_channels}, channels = {channels}')
 
-		sequence = nn.Sequential()
-		for layer in range(layers):
-			up_size = upsized_channels[layer]
-			ch_in = channels[layer]
-			ch_out = channels[layer + 1]
-			kernel_size = kernel_sizes[layer]
-			k_1 = kernel_size - 1
-			upsample_layer = nn.UpsamplingBilinear2d(size=up_size + k_1)
-			sequence.append(upsample_layer)
-			conv_layer = nn.Conv2d(ch_in, ch_out, kernel_size,
-								   bias=False) if kernel_size <= 3 else generate_separated_kernels(
-					kernel_size, ch_in, ch_out, r=9 / 25, add_padding=False)
-			sequence.append(conv_layer)
-			sequence.append(nn.BatchNorm2d(ch_out))
-			if layer < layers - 1:
-				activation_layer = nn.Mish()
-				sequence.append(activation_layer)
-			else:
-				activation_layer = last_activation
-				sequence.append(activation_layer)
-		self.sequence = nn.Sequential(*sequence)
-
-	@classmethod
-	def single_kernel_decode(cls, input_size, output_size, kernel_sizes, inp_out_channels):
-		layers = len(kernel_sizes)
-
-		if len(inp_out_channels) == 2 and layers > 1:
-			channels = channel_kernel_compute(inp_out_channels, layers)
-		elif len(inp_out_channels) == 3 and layers > 2:
-			channels_before = channel_kernel_compute(inp_out_channels[:-1], layers - 1)
-			channels = [*channels_before, inp_out_channels[-1]]
-		else:
-			channels = [*inp_out_channels]
-		print(f'Decoder channels and kernels: {channels},{kernel_sizes}')
-		dec = Decoder(input_size, output_size, kernel_sizes, channels)
-		return dec
-
-	def forward(self, latent_z):
-		return self.sequence.forward(latent_z)
 
 
 class Encoder(nn.Module):
