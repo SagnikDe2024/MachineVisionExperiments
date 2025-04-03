@@ -1,6 +1,5 @@
-import os
-
 import torch
+from torchinfo import summary
 
 from src.models.Model import Classifier
 from src.train_classifier import load_cifar_dataset
@@ -10,6 +9,10 @@ from src.utils.common_utils import AppLog
 def show_images(img_b) -> None:
 	img = img_b.numpy().transpose((1, 2, 0))
 	un_normal = img * 0.5 + 0.5
+
+def visTensor(tensor, nrows = 8, padding=1) -> None:
+	n,c,h,w = tensor.shape
+	tensor = tensor.view(n,c,h,w).cpu().detach().numpy()
 
 
 def load_model(model_name) -> Classifier:
@@ -22,6 +25,9 @@ def load_model(model_name) -> Classifier:
 def get_state_and_show(file_name) -> None:
 	saved_classifier = load_model(file_name)
 	saved_classifier = saved_classifier.cuda()
+	summary(saved_classifier, (1000, 3, 32, 32))
+	saved_classifier = torch.compile(saved_classifier)
+
 	saved_classifier.eval()
 	tr, valid = load_cifar_dataset(1000)
 	classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
@@ -50,13 +56,8 @@ def get_state_and_show(file_name) -> None:
 def show_model_accuracy() -> None:
 	get_state_and_show('classifier_best.pth')
 
-	# items = os.scandir('c:/mywork/python/ImageEncoderDecoder/models')
-	# for item in items:
-	# 	if item.is_file():
-	# 		if item.name.endswith('.pth'):
-	# 			get_state_and_show(item.name)
-
 	AppLog.shut_down()
+
 
 if __name__ == '__main__':
 	show_model_accuracy()
