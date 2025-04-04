@@ -58,19 +58,6 @@ def generate_separated_kernels(k_size: int, input_channel: int, output_channel: 
 	return conv_layer_1, conv_layer_2
 
 
-def conv_kernel(k_size: int, input_channel: int, output_channel: int, separable, ratio):
-	if separable:
-		if ratio > 1:
-			return generate_separated_kernels(k_size, input_channel, output_channel, add_padding=False)
-		else:
-			return generate_separated_kernels(k_size, input_channel, output_channel, add_padding=True)
-	else:
-		if ratio > 1:
-			return nn.Conv2d(input_channel, output_channel, kernel_size=k_size)
-		else:
-			return nn.Conv2d(input_channel, output_channel, kernel_size=k_size, padding=k_size // 2)
-
-
 def channel_kernel_compute(inp_out_channels: List[int], layers: int):
 	in_channel = inp_out_channels[0]
 	out_channel = inp_out_channels[1]
