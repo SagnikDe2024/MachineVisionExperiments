@@ -7,8 +7,7 @@ from src.models.codec import Encoder
 from src.utils.common_utils import AppLog
 
 
-# This will classify the CIFAR-10 model into the classes for now. Might be helpful for checking the generation
-# when it will be used later.
+# This will classify the CIFAR-10 model into the classes for now.
 
 class Classifier(nn.Module):
 	def __init__(self, dnn_layers: List[int], starting_size: int, final_size: int, starting_channels: int,
