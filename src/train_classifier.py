@@ -12,7 +12,7 @@ from ray.tune.search.optuna import OptunaSearch
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import transforms
 
-from src.models.Model import Classifier
+from src.models.classifier import Classifier
 from src.utils.common_utils import AppLog
 from src.wip.training import ExperimentModels
 
