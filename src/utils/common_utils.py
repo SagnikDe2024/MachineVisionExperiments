@@ -2,6 +2,7 @@ import inspect
 import logging
 import os
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
+from pathlib import Path
 from queue import Queue
 from typing import Optional
 
@@ -24,15 +25,18 @@ class AppLog:
 
 			log_que = Queue(maxsize=1024)
 			q_handle = QueueHandler(log_que)
+			file_dir = Path.cwd(__file__).parent.resolve()
+			logdir = file_dir.parent.parent / 'log'
+			logfile = logdir / 'application.log'
+			print('Logging to {}'.format(logfile))
 
-			handler = RotatingFileHandler('C:/mywork/python/ImageEncoderDecoder/log/application.log',
+			handler = RotatingFileHandler(logfile,
 										  maxBytes=3 * 1024 * 1024,  # 3MB
 										  backupCount=5, encoding='utf-8')
 
 			# Format for the log messages
 			formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 			handler.setFormatter(formatter)
-
 
 			# Console handler
 			# console_handler = logging.StreamHandler(sys.stdout)
