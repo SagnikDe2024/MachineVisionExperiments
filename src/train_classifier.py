@@ -20,9 +20,9 @@ from src.wip.training import ExperimentModels
 def load_cifar_dataset(batch: int = 500):
 	transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
 
-	training_set = CIFAR10(root='C:/mywork/python/ImageEncoderDecoder/data/CIFAR/train', train=True, download=True,
+	training_set = CIFAR10(root='C:/mywork/python/MachineVisionExperiments/data/CIFAR/train', train=True, download=True,
 						   transform=transform)
-	validation_set = CIFAR10(root='C:/mywork/python/ImageEncoderDecoder/data/CIFAR/test', train=False, download=True,
+	validation_set = CIFAR10(root='C:/mywork/python/MachineVisionExperiments/data/CIFAR/test', train=False, download=True,
 							 transform=transform)
 	AppLog.info(f'{len(training_set)} training samples and {len(validation_set)} validation samples')
 	train_loader = torch.utils.data.DataLoader(training_set, batch_size=batch, shuffle=True, pin_memory=True,
@@ -152,6 +152,6 @@ if __name__ == '__main__':
 	AppLog.info(f'Checkpoint: {checkpoint_name} saved with metric {metrics} used config {config}')
 
 	torch.save((model.model_params, model.state_dict()),
-			   f'C:/mywork/python/ImageEncoderDecoder/models/{checkpoint_name}')
+			   f'//models/{checkpoint_name}')
 
 	AppLog.shut_down()
