@@ -1,7 +1,7 @@
 import torch
 from torchinfo import summary
 
-from src.models.classifier import Classifier
+from src.classifier.classifier import Classifier
 from src.train_classifier import load_cifar_dataset
 from src.utils.common_utils import AppLog
 
