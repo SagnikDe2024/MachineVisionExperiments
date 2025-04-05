@@ -1,23 +1,19 @@
 import os
-import tempfile
 from datetime import datetime
 
 import numpy as np
 import ray
 import torch
 from ray import tune
-from ray.tune import Checkpoint, Result
+from ray.tune import Result
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.optuna import OptunaSearch
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import transforms
 
-from src.models.classifier import Classifier
+from src.classifier.classifier import Classifier
 from src.utils.common_utils import AppLog
 from src.wip.training import ExperimentModels
-
-
-# import ray.train.torch
 
 
 def load_cifar_dataset(batch: int = 500):
@@ -36,13 +32,6 @@ def load_cifar_dataset(batch: int = 500):
 	return train_loader, validation_loader
 
 
-async def save_checkpoint(avg_vloss: float, classifier: Classifier, epoch: int) -> None:
-	with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
-		model_name_temp = f'classifier_tuned.pth'
-		torch.save((classifier.model_params, classifier.state_dict()),
-				   os.path.join(temp_checkpoint_dir, model_name_temp))
-		checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
-		tune.report({'v_loss': avg_vloss, 'epoch': (epoch + 1)}, checkpoint=checkpoint)
 
 
 def create_classifier_from_config(classifier_config) -> Classifier:
