@@ -1,11 +1,12 @@
 import os
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import ray
 import torch
 from ray import tune
-from ray.tune import Result
+from ray.tune import Result, RunConfig
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.optuna import OptunaSearch
 from torchvision.datasets import CIFAR10
@@ -30,6 +31,11 @@ def load_cifar_dataset(batch: int = 500):
 													drop_last=True)
 
 	return train_loader, validation_loader
+
+class TuneClassifier:
+	def __init__(self):
+		self.trial_dir_name = 0
+
 
 
 
@@ -79,8 +85,16 @@ def tune_with_exp(exp_model: ExperimentModels, config):
 
 
 if __name__ == '__main__':
+	# Shutdown ray if that is running
 	ray.shutdown()
-	ray.init(local_mode=True, _temp_dir='C:/mywork/python/ImageEncoderDecoder/out')
+	currentPath = Path.cwd()
+	os_sep = os.sep
+
+	ray.init(local_mode=True, _temp_dir=(currentPath / 'out'))
+	tune_run_config = RunConfig(
+			name='classifier_model_param',
+			storage_path=currentPath / '',
+	)
 
 	scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=5,
 							  reduction_factor=3)

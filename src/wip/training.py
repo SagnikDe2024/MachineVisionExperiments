@@ -58,7 +58,8 @@ class TrainModel:
 				running_vloss += v_loss.item()
 				valid_batch_index += 1
 				AppLog.info(
-						f'Epoch [{epoch + 1}/{EPOCHS}]: V_Batch [{valid_batch_index}]: V_Loss: {running_vloss / (valid_batch_index)}')
+						f'Epoch [{epoch + 1}/{EPOCHS}]: V_Batch [{valid_batch_index}]: V_Loss: '
+						f'{running_vloss / valid_batch_index}')
 		avg_vloss = running_vloss / valid_batch_index
 		return avg_vloss
 
@@ -98,26 +99,25 @@ class TrainModel:
 # serialization_queue = Queue(maxsize=40)
 
 
+def save_checkpoint(avg_vloss: float, classifier: nn.Module, epoch: int) -> None:
+	with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
+		model_name_temp = f'classifier_tuned.pth'
+		torch.save((classifier.model_params, classifier.state_dict()),
+				   os.path.join(temp_checkpoint_dir, model_name_temp))
+		checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
+		tune.report({'v_loss': avg_vloss, 'epoch': (epoch + 1)}, checkpoint=checkpoint)
+
+
+def queued_result(q: Queue) -> None:
+	avg_vloss, classifier, epoch = q.get()
+	save_checkpoint(avg_vloss, classifier, epoch)
+
+
 class ExperimentModels:
 
 	def __init__(self, model_creator_func, loader_func) -> None:
 		self.model_creator_func = model_creator_func
 		self.loader_func = loader_func
-
-		# self.save_process = Process(target=self.queued_result, args=(serialization_queue,
-    # ))  # self.save_process.start()
-
-	def save_checkpoint(self, avg_vloss: float, classifier: nn.Module, epoch: int) -> None:
-		with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
-			model_name_temp = f'classifier_tuned.pth'
-			torch.save((classifier.model_params, classifier.state_dict()),
-					   os.path.join(temp_checkpoint_dir, model_name_temp))
-			checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
-			tune.report({'v_loss': avg_vloss, 'epoch': (epoch + 1)}, checkpoint=checkpoint)
-
-	def queued_result(self, q: Queue) -> None:
-		avg_vloss, classifier, epoch = q.get()
-		self.save_checkpoint(avg_vloss, classifier, epoch)
 
 	def execute_single_experiment(self, model_config, batch_size, lr):
 		model = self.model_creator_func(model_config)
@@ -130,7 +130,7 @@ class ExperimentModels:
 		trainable_params = model_summary.trainable_params
 		AppLog.info(f'There are {trainable_params} trainable parameters.')
 
-		train_model = TrainModel(self.save_checkpoint, model, loss_fn, optimizer, device, 0, 50)
+		train_model = TrainModel(save_checkpoint, model, loss_fn, optimizer, device, 0, 50)
 		best_vloss, model_params = train_model.train_and_evaluate(train_loader, validation_loader)
 		AppLog.info(
 				f'Best vloss: {best_vloss}, with {trainable_params} params. Performance per param (Higher is better) = '
