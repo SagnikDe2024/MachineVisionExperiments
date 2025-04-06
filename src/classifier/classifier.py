@@ -10,10 +10,10 @@ from src.utils.common_utils import AppLog
 # This will classify the CIFAR-10 model into the classes for now.
 
 class Classifier(nn.Module):
-	def __init__(self, dnn_layers: List[int], starting_size: int, final_size: int, starting_channels: int,
+	def __init__(self, fcn_layers: List[int], starting_size: int, final_size: int, starting_channels: int,
 				 final_channels: int, cnn_layers: int) -> None:
 		super().__init__()
-		self.model_params = {'dnn_layers'       : dnn_layers, 'starting_size': starting_size, 'final_size': final_size,
+		self.model_params = {'fcn_layers': fcn_layers, 'starting_size': starting_size, 'final_size': final_size,
 							 'starting_channels': starting_channels,
 							 'final_channels'   : final_channels, 'cnn_layers': cnn_layers}
 
@@ -25,9 +25,9 @@ class Classifier(nn.Module):
 		channels = [3, *channels_rest]
 		kernels = [3 for _ in range(cnn_layers)]
 		encoder = Encoder(starting_size, final_size, kernels, channels)
-		first_dnn_layer = final_size ** 2 * final_channels
-		dnn_layers = [first_dnn_layer, *dnn_layers]
-		AppLog.info(f"DNN layers: {dnn_layers}")
+		first_fcn_layer = final_size ** 2 * final_channels
+		fcn_layers = [first_fcn_layer, *fcn_layers]
+		AppLog.info(f"FCN layers: {fcn_layers}")
 
 		self.encoder = encoder
 		sequence = nn.Sequential()
@@ -36,13 +36,13 @@ class Classifier(nn.Module):
 		# Flatten the result from the encoder first
 		sequence.append(nn.Flatten())
 
-		for layer_dnn in range(len(dnn_layers) - 2):
+		for layer_fcn in range(len(fcn_layers) - 2):
 			# Apply an activation
 			act = nn.Mish()
-			lin = nn.Linear(dnn_layers[layer_dnn], dnn_layers[layer_dnn + 1])
+			lin = nn.Linear(fcn_layers[layer_fcn], fcn_layers[layer_fcn + 1])
 			sequence.append(lin)
 			sequence.append(act)
-		sequence.append(nn.Linear(dnn_layers[-2], dnn_layers[-1]))
+		sequence.append(nn.Linear(fcn_layers[-2], fcn_layers[-1]))
 
 		self.sequence = nn.Sequential(*sequence)
 		self.normalized = nn.Softmax(dim=1)
