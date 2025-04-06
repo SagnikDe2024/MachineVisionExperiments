@@ -2,7 +2,6 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import ray
 import torch
 from ray import tune
@@ -48,13 +47,11 @@ class TuneClassifier:
 		experiment = ExperimentModels(create_classifier_from_config, load_cifar_dataset)
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
 		self.search_space = {'learning_rate'    : tune.loguniform(0.00001, 0.0075),
-							 'dnn_layers'       : tune.quniform(4, 7, 1),
-							 'final_size'       : tune.quniform(1, 4, 1),
-							 'starting_channels': tune.qloguniform(12, 32, 4),
-							 'final_channels'   : tune.sample_from(
-									 lambda spec: np.random.uniform(256 / (spec.config.final_size ** 2),
-																	2048 / (spec.config.final_size ** 2))),
-							 'cnn_layers'       : tune.quniform(3, 6, 1),
+							 'fcn_layers'       : tune.quniform(4, 7, 1),
+							 'starting_channels': tune.qloguniform(12, 48, 4),
+							 'cnn_layers'       : tune.sample_from(
+								 lambda config: tune.quniform(4, 12 - config.fcn_layers, 1).sample()),
+							 'final_channels'   : tune.quniform(128, 384),
 							 'batch_size'       : tune.choice([100, 125, 250])}
 
 		self.trainable_with_resources = tune.with_resources(tune_exp, {'cpu': 1, "gpu": 0.45})
@@ -69,6 +66,7 @@ class TuneClassifier:
 		self.dir_num += 1
 		return f'{save_time}_{hashed}_{self.dir_num}'
 
+	@torch.compile
 	def tune_classifier_model(self, restore=True):
 
 		ray.init(_temp_dir=(self.working_dir / 'out'))
@@ -112,22 +110,21 @@ class TuneClassifier:
 
 
 def create_classifier_from_config(classifier_config) -> Classifier:
-	classifier_config['final_size'] = int(round(classifier_config['final_size'], 0))
-	classifier_config['dnn_layers'] = int(round(classifier_config['dnn_layers'], 0))
+
+	classifier_config['fcn_layers'] = int(round(classifier_config['fcn_layers'], 0))
 	classifier_config['cnn_layers'] = int(round(classifier_config['cnn_layers'], 0))
 	classifier_config['starting_channels'] = int(classifier_config['starting_channels'])
-	classifier_config['final_channels'] = int(classifier_config['final_channels'])
 	layers = classifier_config['cnn_layers']
-	dnn_layers = classifier_config['dnn_layers']
+	fcn_layers = classifier_config['fcn_layers']
 	channels = classifier_config['final_channels']
-	size = classifier_config['final_size']
-	starting_channels = classifier_config['starting_channels']
 
-	flattened_shape_params: int = channels * size * size
-	dnn_param_downscale_ratio = (10 / flattened_shape_params) ** (1 / dnn_layers)
-	dnn_params = [int(round(flattened_shape_params * dnn_param_downscale_ratio ** dnn_l, 0)) for dnn_l in
-				  range(1, dnn_layers + 1)]
-	classifier = Classifier(dnn_params, 32, size, starting_channels, channels, layers)
+	starting_channels = classifier_config['starting_channels']
+	final_size = 2
+	flattened_shape_params: int = channels * final_size * final_size
+	fcn_param_downscale_ratio = (10 / flattened_shape_params) ** (1 / fcn_layers)
+	fcn_params = [int(round(flattened_shape_params * fcn_param_downscale_ratio ** fcn_l, 0)) for fcn_l in
+				  range(1, fcn_layers + 1)]
+	classifier = Classifier(fcn_params, 32, final_size, starting_channels, channels, layers)
 	return classifier
 
 
