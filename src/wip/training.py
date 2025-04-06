@@ -1,6 +1,5 @@
 import os
 import tempfile
-from multiprocessing import Queue
 
 import torch
 from ray import tune
@@ -96,21 +95,15 @@ class TrainModel:
 		return self.best_vloss, self.model.model_params
 
 
-# serialization_queue = Queue(maxsize=40)
-
-
-def save_checkpoint(avg_vloss: float, classifier: nn.Module, epoch: int) -> None:
+def save_checkpoint(avg_vloss: float, model: nn.Module, epoch: int) -> None:
 	with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
-		model_name_temp = f'classifier_tuned.pth'
-		torch.save((classifier.model_params, classifier.state_dict()),
+		model_name_temp = f'model_checkpoint.pth'
+		torch.save((model.model_params, model.state_dict()),
 				   os.path.join(temp_checkpoint_dir, model_name_temp))
 		checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
 		tune.report({'v_loss': avg_vloss, 'epoch': (epoch + 1)}, checkpoint=checkpoint)
 
 
-def queued_result(q: Queue) -> None:
-	avg_vloss, classifier, epoch = q.get()
-	save_checkpoint(avg_vloss, classifier, epoch)
 
 
 class ExperimentModels:
@@ -130,12 +123,17 @@ class ExperimentModels:
 		trainable_params = model_summary.trainable_params
 		AppLog.info(f'There are {trainable_params} trainable parameters.')
 
-		train_model = TrainModel(save_checkpoint, model, loss_fn, optimizer, device, 0, 50)
+		checkpoint = tune.get_checkpoint()
+		if checkpoint:
+			with checkpoint.as_directory() as checkpoint_dir:
+				checkpoint_dict = torch.load(os.path.join(checkpoint_dir, "model_checkpoint.pth"))
+				start = checkpoint_dict["epoch"]
+				model.load_state_dict(checkpoint_dict["model_state"])
+
+		train_model = TrainModel(save_checkpoint, model, loss_fn, optimizer, device, start, 50)
 		best_vloss, model_params = train_model.train_and_evaluate(train_loader, validation_loader)
 		AppLog.info(
 				f'Best vloss: {best_vloss}, with {trainable_params} params. Performance per param (Higher is better) = '
                 f'{1 / (trainable_params * best_vloss)}')
 		AppLog.info(f'Classifier best vloss: {best_vloss}, training done. Model params: {model_params}.')
 		return {'v_loss': best_vloss, 'trainable_params': trainable_params, 'model_params': model_params}
-
-	# def shutdown_checkpoint(self):  #     self.save_process.close()  #     self.save_process.join()
