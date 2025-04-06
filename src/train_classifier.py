@@ -152,7 +152,7 @@ if __name__ == '__main__':
 	experiment_time = datetime.now().strftime('%Y%m%dT%H%M%S')
 	working_dir = Path.cwd()
 	torch.set_float32_matmul_precision('high')
-	samples = 100
+	samples = 150
 	tune_classifier = TuneClassifier(working_dir=working_dir, samples=samples)
 	tune_classifier.tune_classifier_model()
 	AppLog.shut_down()
