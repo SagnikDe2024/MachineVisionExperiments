@@ -75,14 +75,15 @@ class Encoder(nn.Module):
 		for layer in range(layers):
 			ch_in, ch_out = channels[layer], channels[layer + 1]
 			kernel_size = kernel_sizes[layer]
-			# padding = kernel_size // 2
-			conv_layer1, conv_layer2 = generate_separated_kernels(kernel_size, ch_in, ch_out)
+			padding = kernel_size // 2
+			# conv_layer1, conv_layer2 = generate_separated_kernels(kernel_size, ch_in, ch_out)
 
-			# conv_layer = nn.Conv2d(ch_in, ch_out, kernel_size, padding=padding)
+			conv_layer = nn.Conv2d(ch_in, ch_out, kernel_size, padding=padding)
 			activation_layer = nn.Mish()
 			pooling_layer = nn.FractionalMaxPool2d(2, output_size=downsampled_sizes[layer])
-			sequence.append(conv_layer1)
-			sequence.append(conv_layer2)
+			# sequence.append(conv_layer1)
+			# sequence.append(conv_layer2)
+			sequence.append(conv_layer)
 			sequence.append(nn.BatchNorm2d(ch_out))
 			sequence.append(activation_layer)
 			sequence.append(pooling_layer)
