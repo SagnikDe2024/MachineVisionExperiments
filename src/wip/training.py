@@ -112,7 +112,6 @@ class ExperimentModels:
 		self.model_creator_func = model_creator_func
 		self.loader_func = loader_func
 
-	@torch.compile
 	def execute_single_experiment(self, model_config, batch_size, lr):
 		model = self.model_creator_func(model_config)
 		train_loader, validation_loader = self.loader_func(batch_size)
@@ -131,7 +130,7 @@ class ExperimentModels:
 				checkpoint_dict = torch.load(os.path.join(checkpoint_dir, "model_checkpoint.pth"))
 				start = checkpoint_dict["epoch"]
 				model.load_state_dict(checkpoint_dict["model_state"])
-
+		model = torch.compile(model, mode="max-autotune")
 		train_model = TrainModel(save_checkpoint, model, loss_fn, optimizer, device, start, 50)
 		best_vloss, model_params = train_model.train_and_evaluate(train_loader, validation_loader)
 		AppLog.info(
