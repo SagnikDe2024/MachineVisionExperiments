@@ -112,10 +112,11 @@ class ExperimentModels:
 		self.model_creator_func = model_creator_func
 		self.loader_func = loader_func
 
+	@torch.compile
 	def execute_single_experiment(self, model_config, batch_size, lr):
 		model = self.model_creator_func(model_config)
 		train_loader, validation_loader = self.loader_func(batch_size)
-		model_summary = summary(model, input_size=(batch_size, 3, 32, 32), verbose=0)
+		model_summary = summary(model, input_size=(batch_size, 3, 32, 32))
 
 		optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 		loss_fn = nn.CrossEntropyLoss()
@@ -124,6 +125,7 @@ class ExperimentModels:
 		AppLog.info(f'There are {trainable_params} trainable parameters.')
 
 		checkpoint = tune.get_checkpoint()
+		start = 0
 		if checkpoint:
 			with checkpoint.as_directory() as checkpoint_dir:
 				checkpoint_dict = torch.load(os.path.join(checkpoint_dir, "model_checkpoint.pth"))
