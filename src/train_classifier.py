@@ -15,12 +15,12 @@ from src.classifier.classifier import Classifier
 from src.utils.common_utils import AppLog
 from src.wip.training import ExperimentModels
 
-
-def load_cifar_dataset(working_dir, batch: int = 500):
+@torch.compiler.disable(recursive=True)
+def load_cifar_dataset(working_dir: Path, batch: int = 500):
 	transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
 
-	trainloc: Path = working_dir / 'data' / 'CIFAR' / 'train'
-	testloc: Path = working_dir / 'data' / 'CIFAR' / 'test'
+	trainloc: Path = ((working_dir / 'data') / 'CIFAR') / 'train'
+	testloc: Path = ((working_dir / 'data') / 'CIFAR') / 'test'
 
 	training_set = CIFAR10(root=trainloc, train=True, download=False, transform=transform)
 	validation_set = CIFAR10(root=testloc, train=False, download=False, transform=transform)
@@ -44,17 +44,18 @@ class TuneClassifier:
 				name='tune_classifier',
 				storage_path=self.checkpoint_store,
 		)
-		experiment = ExperimentModels(create_classifier_from_config, load_cifar_dataset)
+		experiment = ExperimentModels(create_classifier_from_config,
+									  lambda batch: load_cifar_dataset(self.working_dir, batch))
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
 		self.search_space = {'learning_rate'    : tune.loguniform(0.00001, 0.0075),
 							 'fcn_layers'       : tune.quniform(4, 7, 1),
 							 'starting_channels': tune.qloguniform(12, 48, 4),
 							 'cnn_layers'       : tune.sample_from(
-								 lambda config: tune.quniform(4, 12 - config.fcn_layers, 1).sample()),
-							 'final_channels'   : tune.quniform(128, 384),
+									 lambda spec: tune.quniform(4, 12 - spec.config.fcn_layers, 1).sample()),
+							 'final_channels'   : tune.quniform(128, 384, 1),
 							 'batch_size'       : tune.choice([100, 125, 250])}
 
-		self.trainable_with_resources = tune.with_resources(tune_exp, {'cpu': 1, "gpu": 0.45})
+		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu":1,"gpu": 0.3})
 		self.tune_config = tune.TuneConfig(num_samples=samples, trial_dirname_creator=self.trial_dir_name,
 										   max_concurrent_trials=3, search_alg=search,
 										   scheduler=scheduler)
@@ -66,16 +67,17 @@ class TuneClassifier:
 		self.dir_num += 1
 		return f'{save_time}_{hashed}_{self.dir_num}'
 
-	@torch.compile
+
 	def tune_classifier_model(self, restore=True):
 
-		ray.init(_temp_dir=(self.working_dir / 'out'))
+		tempdir = self.working_dir / 'out'
+		ray.init(_temp_dir=f'{tempdir.absolute()}')
 
 		if restore and Tuner.can_restore(self.checkpoint_store):
-			mytune = Tuner.restore(self.checkpoint_store, trainable=self.trainable_with_resources)
+			mytune = Tuner.restore(f'{self.checkpoint_store.absolute()}', trainable=self.trainable_with_resources)
 		else:
 			mytune = Tuner(self.trainable_with_resources, param_space=self.search_space,
-						   tune_config=self.tune_config)
+						   tune_config=self.tune_config, run_config=self.tune_run_config)
 		results_grid = mytune.fit()
 		ray.shutdown()
 
@@ -116,7 +118,7 @@ def create_classifier_from_config(classifier_config) -> Classifier:
 	classifier_config['starting_channels'] = int(classifier_config['starting_channels'])
 	layers = classifier_config['cnn_layers']
 	fcn_layers = classifier_config['fcn_layers']
-	channels = classifier_config['final_channels']
+	channels = int(round(classifier_config['final_channels']))
 
 	starting_channels = classifier_config['starting_channels']
 	final_size = 2
@@ -149,6 +151,7 @@ if __name__ == '__main__':
 	ray.shutdown()
 	experiment_time = datetime.now().strftime('%Y%m%dT%H%M%S')
 	working_dir = Path.cwd()
+	torch.set_float32_matmul_precision('high')
 	samples = 100
 	tune_classifier = TuneClassifier(working_dir=working_dir, samples=samples)
 	tune_classifier.tune_classifier_model()
