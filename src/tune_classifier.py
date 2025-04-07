@@ -59,14 +59,14 @@ class TuneClassifier:
 		experiment = ExperimentModels(create_classifier_from_config,
 									  lambda batch: load_cifar_dataset(self.working_dir, int(batch)))
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
-		self.search_space = {'learning_rate' : tune.loguniform(0.001, 0.01),
+		self.search_space = {'learning_rate'    : tune.uniform(0.001, 0.01),
 							 'fcn_layers'       : tune.quniform(4, 7, 1),
 							 'starting_channels': tune.quniform(32, 48, 1),
-							 'cnn_layers': tune.sample_from(lambda spec: get_cnn_layers_sample(spec)),
-							 'final_channels': tune.quniform(128, 250, 1),
-							 'batch_size'       : tune.uniform(125,500)}
+							 'cnn_layers'       : tune.sample_from(lambda spec: get_cnn_layers_sample(spec)),
+							 'final_channels'   : tune.quniform(128, 250, 1),
+							 'batch_size'       : tune.quniform(125, 500, 1)}
 
-		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu":1,"gpu": 0.3})
+		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.2375})
 		self.tune_config = tune.TuneConfig(num_samples=samples, trial_dirname_creator=self.trial_dir_name,
 										   max_concurrent_trials=5, scheduler=scheduler)
 
@@ -77,7 +77,6 @@ class TuneClassifier:
 		hashed = f'{hash(param_s)}'
 		self.dir_num += 1
 		return f'2_{save_time}_{hashed}_{self.dir_num}'
-
 
 	def tune_classifier_model(self, restore=True):
 
@@ -119,9 +118,6 @@ class TuneClassifier:
 		torch.save((model.model_params, model.state_dict()), self.working_dir / 'models' / checkpoint_name)
 
 		AppLog.shut_down()
-
-
-
 
 
 def create_classifier_from_config(classifier_config) -> Classifier:
