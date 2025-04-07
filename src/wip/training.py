@@ -114,6 +114,7 @@ class ExperimentModels:
 
 	def execute_single_experiment(self, model_config, batch_size, lr):
 		model: nn.Module = self.model_creator_func(model_config)
+		batch_size = int(round(batch_size))
 		train_loader, validation_loader = self.loader_func(batch_size)
 		model_summary = summary(model, input_size=(batch_size, 3, 32, 32))
 
