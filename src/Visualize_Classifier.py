@@ -21,7 +21,7 @@ def visTensor(tensor, nrows = 8, padding=1) -> None:
 
 
 
-def removed_empty_checkpoint_directory():
+def remove_empty_checkpoint_directory():
 	working_dir = Path.cwd()
 	classifier_checkpoints_dir = working_dir / 'checkpoints' / 'tune_classifier'
 	sub_directories = [sub for sub in classifier_checkpoints_dir.iterdir() if sub.is_dir()]
