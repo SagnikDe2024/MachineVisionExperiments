@@ -20,6 +20,7 @@ class AppLog:
 	def _initialize_logger(self) -> None:
 		"""Initialize the logger with rotating file handler"""
 		if self._logger is None:
+			pid = os.getpid()
 			self._logger = logging.getLogger('ApplicationLogger')
 			self._logger.setLevel(logging.INFO)  # Default level
 
@@ -27,7 +28,7 @@ class AppLog:
 			q_handle = QueueHandler(log_que)
 			file_dir = Path(__file__).parent.resolve()
 			logdir = file_dir.parent.parent / 'log'
-			logfile = logdir / 'application.log'
+			logfile = logdir / f'application_{pid}.log'
 			print('Logging to {}'.format(logfile))
 
 			handler = RotatingFileHandler(logfile,
