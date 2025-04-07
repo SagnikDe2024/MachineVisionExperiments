@@ -45,10 +45,14 @@ def find_classify_checkpoint():
 				  'learning_rate': [], 'starting_channels': [], 'v_loss': [], 'total_params': [], 'checkpoint_path':
 					  []}
 	for sub_directory in sub_directories:
+		params_json_path = sub_directory / 'params.json'
+		progress_csv_path = sub_directory / 'progress.csv'
+		if not (params_json_path.is_exists() and progress_csv_path.is_exists()):
+			continue
 
-		tune_params = json.load(open(sub_directory / 'params.json'))
+		tune_params = json.load(open(params_json_path))
 
-		progress = read_csv(sub_directory / 'progress.csv')
+		progress = read_csv(progress_csv_path)
 		min_vloss: float = progress.v_loss.min()
 
 		checkpoint_dir_min_vloss_index = progress[
