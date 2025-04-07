@@ -47,7 +47,7 @@ def find_classify_checkpoint():
 	for sub_directory in sub_directories:
 		params_json_path = sub_directory / 'params.json'
 		progress_csv_path = sub_directory / 'progress.csv'
-		if not (params_json_path.is_exists() and progress_csv_path.is_exists()):
+		if not (params_json_path.exists() and progress_csv_path.exists()):
 			continue
 
 		tune_params = json.load(open(params_json_path))
