@@ -57,14 +57,14 @@ class TuneClassifier:
 				storage_path=f'{self.checkpoint_store}',
 		)
 		experiment = ExperimentModels(create_classifier_from_config,
-									  lambda batch: load_cifar_dataset(self.working_dir, batch))
+									  lambda batch: load_cifar_dataset(self.working_dir, int(batch)))
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
 		self.search_space = {'learning_rate' : tune.loguniform(0.001, 0.01),
 							 'fcn_layers'       : tune.quniform(4, 7, 1),
-							 'starting_channels': tune.qloguniform(12, 48, 1),
+							 'starting_channels': tune.quniform(32, 48, 1),
 							 'cnn_layers': tune.sample_from(lambda spec: get_cnn_layers_sample(spec)),
 							 'final_channels': tune.quniform(128, 250, 1),
-							 'batch_size'       : tune.choice([100, 125, 250])}
+							 'batch_size'       : tune.uniform(125,500)}
 
 		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu":1,"gpu": 0.3})
 		self.tune_config = tune.TuneConfig(num_samples=samples, trial_dirname_creator=self.trial_dir_name,
@@ -76,7 +76,7 @@ class TuneClassifier:
 		param_s = f'{params}'
 		hashed = f'{hash(param_s)}'
 		self.dir_num += 1
-		return f'{save_time}_{hashed}_{self.dir_num}'
+		return f'2_{save_time}_{hashed}_{self.dir_num}'
 
 
 	def tune_classifier_model(self, restore=True):
