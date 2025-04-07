@@ -1,12 +1,13 @@
 import json
 from pathlib import Path
 
+import pandas as pd
 import torch
 from pandas import read_csv
 from torchinfo import summary
 
 from src.classifier.classifier import Classifier
-from src.tune_classifier import load_cifar_dataset
+from src.tune_classifier import load_cifar_dataset, prepare_classifier_params
 from src.utils.common_utils import AppLog
 
 
@@ -46,12 +47,14 @@ def find_classify_checkpoint():
 	working_dir = Path.cwd()
 	classifier_checkpoints_dir = working_dir / 'checkpoints' / 'tune_classifier'
 	sub_directories = [sub for sub in classifier_checkpoints_dir.iterdir() if sub.is_dir()]
+	param_dict = {'batch_size'   : [], 'cnn_layers': [], 'fcn_layers': [], 'final_channels': [],
+				  'learning_rate': [], 'starting_channels': [], 'v_loss': [], 'total_params': []}
 	for sub_directory in sub_directories:
-		# stored_checkpoint_dirs = [chk for chk in sub_directory.iterdir() if chk.is_dir()]
+
 		tune_params = json.load(open(sub_directory / 'params.json'))
-		# tune_params = read_json(sub_directory / 'params.json')
+
 		progress = read_csv(sub_directory / 'progress.csv')
-		min_vloss = progress.v_loss.min()
+		min_vloss: float = progress.v_loss.min()
 
 		checkpoint_dir_min_vloss_index = progress[
 			progress.v_loss == min_vloss].index[0]
@@ -60,6 +63,25 @@ def find_classify_checkpoint():
 		print(f'Tuning {sub_directory} has vloss {min_vloss}')
 		print(checkpoint_dir_min_vloss)
 		print(f'Parameters: {tune_params}')
+		checkpoint = sub_directory / checkpoint_dir_min_vloss / 'model_checkpoint.pth'
+		classifier_params, model_state = torch.load(checkpoint)
+		classifier = Classifier(**classifier_params)
+		model_with_params = summary(classifier, (100, 3, 32, 32), verbose=1)
+		total_params = model_with_params.trainable_params
+
+		final_channels, fcn_layers, cnn_layers, starting_channels = prepare_classifier_params(tune_params)
+
+		param_dict['batch_size'].append(tune_params['batch_size'])
+		param_dict['cnn_layers'].append(cnn_layers)
+		param_dict['fcn_layers'].append(fcn_layers)
+		param_dict['final_channels'].append(final_channels)
+		param_dict['learning_rate'].append(tune_params['learning_rate'])
+		param_dict['starting_channels'].append(starting_channels)
+		param_dict['total_params'].append(total_params)
+		param_dict['v_loss'].append(min_vloss)
+		break
+	v_loss_df = pd.DataFrame(param_dict)
+	return v_loss_df
 
 
 def get_state_and_show(file_name) -> None:
@@ -96,10 +118,15 @@ def get_state_and_show(file_name) -> None:
 def show_model_accuracy() -> None:
 	get_state_and_show('classifier_best.pth')
 
-	AppLog.shut_down()
-
 
 if __name__ == '__main__':
-	find_classify_checkpoint()
+	result_df = find_classify_checkpoint()
+	min_vloss = result_df.v_loss.min()
+	min_vloss_row = result_df[
+		result_df.v_loss == min_vloss]
+	pd.options.display.max_columns = None
+	print(f'{min_vloss_row}')
+	AppLog.shut_down()
+
 # removed_empty_checkpoint_directory()
 # show_model_accuracy()
