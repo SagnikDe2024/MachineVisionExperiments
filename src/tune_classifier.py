@@ -52,21 +52,18 @@ class TuneClassifier:
 		scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=5,
 								  reduction_factor=3)
 		# search = OptunaSearch(metric='v_loss', mode='min',study_name='tune_classifier')
-		self.tune_run_config = RunConfig(
-				name='tune_classifier',
-				storage_path=f'{self.checkpoint_store}',
-		)
+		self.tune_run_config = RunConfig(name='tune_classifier', storage_path=f'{self.checkpoint_store}', )
 		experiment = ExperimentModels(create_classifier_from_config,
 									  lambda batch: load_cifar_dataset(self.working_dir, int(batch)))
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
-		self.search_space = {'learning_rate'    : tune.choice([0.01, 0.02,0.03]),
-							 'fcn_layers'       : tune.choice([4, 5, 6]),
+		self.search_space = {'learning_rate'    : tune.choice([0.01, 0.02, 0.03]),
+							 'fcn_layers'       : tune.choice([4, 5]),
 							 'starting_channels': tune.quniform(32, 48, 1),
-							 'cnn_layers'       : tune.sample_from(lambda spec: get_cnn_layers_sample(spec)),
-							 'final_channels'   : tune.quniform(128, 250, 1),
-							 'batch_size'       : tune.quniform(125, 500, 1)}
+							 # 'cnn_layers'       : tune.sample_from(lambda spec: get_cnn_layers_sample(spec)),
+							 'cnn_layers'       : tune.choice([5, 6]), 'final_channels': tune.quniform(128, 250, 1),
+							 'batch_size'       : tune.quniform(125, 500, 25)}
 
-		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.45})
+		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.32})
 		self.tune_config = tune.TuneConfig(num_samples=samples, trial_dirname_creator=self.trial_dir_name,
 										   max_concurrent_trials=5, scheduler=scheduler)
 
@@ -86,8 +83,8 @@ class TuneClassifier:
 		if restore and Tuner.can_restore(self.checkpoint_store):
 			mytune = Tuner.restore(f'{self.checkpoint_store.absolute()}', trainable=self.trainable_with_resources)
 		else:
-			mytune = Tuner(self.trainable_with_resources, param_space=self.search_space,
-						   tune_config=self.tune_config, run_config=self.tune_run_config)
+			mytune = Tuner(self.trainable_with_resources, param_space=self.search_space, tune_config=self.tune_config,
+						   run_config=self.tune_run_config)
 		results_grid = mytune.fit()
 		ray.shutdown()
 
