@@ -58,9 +58,9 @@ class TuneClassifier:
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
 		self.search_space = {'learning_rate'    : tune.choice([0.01, 0.02, 0.03]),
 							 'fcn_layers'       : tune.choice([4, 5]),
-							 'starting_channels': tune.quniform(32, 48, 1),
+							 'starting_channels': tune.quniform(32, 48, 2),
 							 # 'cnn_layers'       : tune.sample_from(lambda spec: get_cnn_layers_sample(spec)),
-							 'cnn_layers'       : tune.choice([5, 6]), 'final_channels': tune.quniform(128, 250, 1),
+							 'cnn_layers'       : tune.choice([5, 6]), 'final_channels': tune.quniform(128, 256, 2),
 							 'batch_size'       : tune.quniform(125, 500, 25)}
 
 		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.32})
