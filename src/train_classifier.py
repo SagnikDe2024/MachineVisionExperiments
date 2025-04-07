@@ -2,18 +2,19 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import ray
 import torch
 from ray import tune
 from ray.tune import Result, RunConfig, Tuner
 from ray.tune.schedulers import ASHAScheduler
-from ray.tune.search.optuna import OptunaSearch
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import transforms
 
 from src.classifier.classifier import Classifier
 from src.utils.common_utils import AppLog
 from src.wip.training import ExperimentModels
+
 
 @torch.compiler.disable(recursive=True)
 def load_cifar_dataset(working_dir: Path, batch: int = 500):
@@ -32,6 +33,15 @@ def load_cifar_dataset(working_dir: Path, batch: int = 500):
 
 	return train_loader, validation_loader
 
+
+def get_func(something):
+	print(f'something is {something}')
+	if 'fcn_layers' in something:
+		fcn_layers = something['fcn_layers']
+	else:
+		fcn_layers = something['config']['fcn_layers']
+	return np.random.uniform(4, 12 - fcn_layers)
+
 class TuneClassifier:
 	def __init__(self, working_dir: Path, samples):
 		self.dir_num = 0
@@ -39,26 +49,24 @@ class TuneClassifier:
 		self.checkpoint_store = self.working_dir / 'checkpoints'
 		scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=5,
 								  reduction_factor=3)
-		search = OptunaSearch(metric='v_loss', mode='min')
+		# search = OptunaSearch(metric='v_loss', mode='min',study_name='tune_classifier')
 		self.tune_run_config = RunConfig(
 				name='tune_classifier',
-				storage_path=self.checkpoint_store,
+				storage_path=f'{self.checkpoint_store}',
 		)
 		experiment = ExperimentModels(create_classifier_from_config,
 									  lambda batch: load_cifar_dataset(self.working_dir, batch))
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
 		self.search_space = {'learning_rate'    : tune.loguniform(0.00001, 0.0075),
 							 'fcn_layers'       : tune.quniform(4, 7, 1),
-							 'starting_channels': tune.qloguniform(12, 48, 4),
-							 'cnn_layers'       : tune.sample_from(
-									 lambda spec: tune.quniform(4, 12 - spec.config.fcn_layers, 1).sample()),
+							 'starting_channels': tune.qloguniform(12, 48, 1),
+							 'cnn_layers'       : tune.sample_from(lambda spec: get_func(spec)),
 							 'final_channels'   : tune.quniform(128, 384, 1),
 							 'batch_size'       : tune.choice([100, 125, 250])}
 
 		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu":1,"gpu": 0.3})
 		self.tune_config = tune.TuneConfig(num_samples=samples, trial_dirname_creator=self.trial_dir_name,
-										   max_concurrent_trials=3, search_alg=search,
-										   scheduler=scheduler)
+										   max_concurrent_trials=5, scheduler=scheduler)
 
 	def trial_dir_name(self, params) -> str:
 		save_time = datetime.now().strftime('%Y%m%dT%H%M%S')
