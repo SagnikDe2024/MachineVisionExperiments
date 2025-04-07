@@ -81,7 +81,7 @@ def find_classify_checkpoint():
 	return v_loss_df
 
 
-def get_state_and_show_accuracy(checkpoint_path) -> None:
+def get_state_and_show_accuracy(checkpoint_path) -> dict[str, float]:
 	classifier_params, model_state = torch.load(checkpoint_path)
 	classifier = Classifier(**classifier_params)
 	best_classifier = classifier.cuda()
@@ -109,11 +109,12 @@ def get_state_and_show_accuracy(checkpoint_path) -> None:
 					correct_pred[classes[label]] += 1
 				total_pred[classes[label]] += 1
 
-
+	class_accuracy: dict[str, float] = {}
 	for classname, correct_count in correct_pred.items():
 		accuracy = 100 * float(correct_count) / total_pred[classname]
+		class_accuracy[classname] = accuracy
 		AppLog.info(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
-
+	return class_accuracy
 
 def show_model_accuracy() -> None:
 	get_state_and_show_accuracy('classifier_best.pth')
