@@ -66,7 +66,7 @@ class TuneClassifier:
 							 'final_channels'   : tune.quniform(128, 250, 1),
 							 'batch_size'       : tune.quniform(125, 500, 1)}
 
-		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.2375})
+		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.45})
 		self.tune_config = tune.TuneConfig(num_samples=samples, trial_dirname_creator=self.trial_dir_name,
 										   max_concurrent_trials=5, scheduler=scheduler)
 
