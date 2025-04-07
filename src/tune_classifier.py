@@ -34,13 +34,15 @@ def load_cifar_dataset(working_dir: Path, batch: int = 500):
 	return train_loader, validation_loader
 
 
-def get_func(something):
-	print(f'something is {something}')
-	if 'fcn_layers' in something:
-		fcn_layers = something['fcn_layers']
+# Gets the cnn_layers sample based on fcn_layers sampled.
+def get_cnn_layers_sample(tune_params):
+	print(f'tune_params is {tune_params}')
+	if 'fcn_layers' in tune_params:
+		fcn_layers = tune_params['fcn_layers']
 	else:
-		fcn_layers = something['config']['fcn_layers']
+		fcn_layers = tune_params['config']['fcn_layers']
 	return np.random.uniform(4, 12 - fcn_layers)
+
 
 class TuneClassifier:
 	def __init__(self, working_dir: Path, samples):
@@ -60,7 +62,7 @@ class TuneClassifier:
 		self.search_space = {'learning_rate'    : tune.loguniform(0.00001, 0.0075),
 							 'fcn_layers'       : tune.quniform(4, 7, 1),
 							 'starting_channels': tune.qloguniform(12, 48, 1),
-							 'cnn_layers'       : tune.sample_from(lambda spec: get_func(spec)),
+							 'cnn_layers': tune.sample_from(lambda spec: get_cnn_layers_sample(spec)),
 							 'final_channels'   : tune.quniform(128, 384, 1),
 							 'batch_size'       : tune.choice([100, 125, 250])}
 
@@ -68,6 +70,7 @@ class TuneClassifier:
 		self.tune_config = tune.TuneConfig(num_samples=samples, trial_dirname_creator=self.trial_dir_name,
 										   max_concurrent_trials=5, scheduler=scheduler)
 
+	# This is done as sometimes ray tune creates directories with invalid characters
 	def trial_dir_name(self, params) -> str:
 		save_time = datetime.now().strftime('%Y%m%dT%H%M%S')
 		param_s = f'{params}'
@@ -94,6 +97,8 @@ class TuneClassifier:
 
 		device = torch.device('cpu')
 
+		# This part may be omitted as the checkpoint directory can be used to acquire the best version of the model
+		# later.
 		with checkpoint.as_directory() as checkpoint_dir:
 			classifier_params, model_state = torch.load(os.path.join(checkpoint_dir, "model_checkpoint.pth"),
 														map_location=device)
@@ -121,14 +126,7 @@ class TuneClassifier:
 
 def create_classifier_from_config(classifier_config) -> Classifier:
 
-	classifier_config['fcn_layers'] = int(round(classifier_config['fcn_layers'], 0))
-	classifier_config['cnn_layers'] = int(round(classifier_config['cnn_layers'], 0))
-	classifier_config['starting_channels'] = int(classifier_config['starting_channels'])
-	layers = classifier_config['cnn_layers']
-	fcn_layers = classifier_config['fcn_layers']
-	channels = int(round(classifier_config['final_channels']))
-
-	starting_channels = classifier_config['starting_channels']
+	channels, fcn_layers, layers, starting_channels = prepare_classifier_params(classifier_config)
 	final_size = 2
 	flattened_shape_params: int = channels * final_size * final_size
 	fcn_param_downscale_ratio = (10 / flattened_shape_params) ** (1 / fcn_layers)
@@ -138,7 +136,15 @@ def create_classifier_from_config(classifier_config) -> Classifier:
 	return classifier
 
 
-
+def prepare_classifier_params(classifier_config):
+	classifier_config['fcn_layers'] = int(round(classifier_config['fcn_layers'], 0))
+	classifier_config['cnn_layers'] = int(round(classifier_config['cnn_layers'], 0))
+	classifier_config['starting_channels'] = int(classifier_config['starting_channels'])
+	cnn_layers = classifier_config['cnn_layers']
+	fcn_layers = classifier_config['fcn_layers']
+	channels = int(round(classifier_config['final_channels']))
+	starting_channels = int(round(classifier_config['starting_channels'], 0))
+	return channels, fcn_layers, cnn_layers, starting_channels
 
 
 def tune_with_exp(exp_model: ExperimentModels, config):
@@ -158,6 +164,7 @@ if __name__ == '__main__':
 	# Shutdown ray if that is running
 	ray.shutdown()
 	experiment_time = datetime.now().strftime('%Y%m%dT%H%M%S')
+	# Ensure that the working dir is the base of the project.
 	working_dir = Path.cwd()
 	torch.set_float32_matmul_precision('high')
 	samples = 150
