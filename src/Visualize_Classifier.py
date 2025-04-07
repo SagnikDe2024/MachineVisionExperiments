@@ -20,12 +20,6 @@ def visTensor(tensor, nrows = 8, padding=1) -> None:
 	tensor = tensor.view(n,c,h,w).cpu().detach().numpy()
 
 
-def load_model(model_name) -> Classifier:
-	classifier_params, model_state = torch.load(f'c:/mywork/python/ImageEncoderDecoder/models/{model_name}')
-	saved_classifier = Classifier(**classifier_params)
-	saved_classifier.load_state_dict(model_state)
-	return saved_classifier
-
 
 def removed_empty_checkpoint_directory():
 	working_dir = Path.cwd()
@@ -48,7 +42,8 @@ def find_classify_checkpoint():
 	classifier_checkpoints_dir = working_dir / 'checkpoints' / 'tune_classifier'
 	sub_directories = [sub for sub in classifier_checkpoints_dir.iterdir() if sub.is_dir()]
 	param_dict = {'batch_size'   : [], 'cnn_layers': [], 'fcn_layers': [], 'final_channels': [],
-				  'learning_rate': [], 'starting_channels': [], 'v_loss': [], 'total_params': []}
+				  'learning_rate': [], 'starting_channels': [], 'v_loss': [], 'total_params': [], 'checkpoint_path':
+					  []}
 	for sub_directory in sub_directories:
 
 		tune_params = json.load(open(sub_directory / 'params.json'))
@@ -60,18 +55,19 @@ def find_classify_checkpoint():
 			progress.v_loss == min_vloss].index[0]
 		checkpoint_dir_min_vloss = progress.at[checkpoint_dir_min_vloss_index, 'checkpoint_dir_name']
 
-		print(f'Tuning {sub_directory} has vloss {min_vloss}')
-		print(checkpoint_dir_min_vloss)
-		print(f'Parameters: {tune_params}')
+		AppLog.info(f'Tuning {sub_directory} has vloss {min_vloss}')
+		AppLog.info(checkpoint_dir_min_vloss)
+		AppLog.info(f'Parameters: {tune_params}')
 		checkpoint = sub_directory / checkpoint_dir_min_vloss / 'model_checkpoint.pth'
 		classifier_params, model_state = torch.load(checkpoint)
 		classifier = Classifier(**classifier_params)
-		model_with_params = summary(classifier, (100, 3, 32, 32), verbose=1)
+		batch_size = tune_params['batch_size']
+		model_with_params = summary(classifier, (100, 3, 32, 32), verbose=0)
 		total_params = model_with_params.trainable_params
 
 		final_channels, fcn_layers, cnn_layers, starting_channels = prepare_classifier_params(tune_params)
 
-		param_dict['batch_size'].append(tune_params['batch_size'])
+		param_dict['batch_size'].append(batch_size)
 		param_dict['cnn_layers'].append(cnn_layers)
 		param_dict['fcn_layers'].append(fcn_layers)
 		param_dict['final_channels'].append(final_channels)
@@ -79,28 +75,31 @@ def find_classify_checkpoint():
 		param_dict['starting_channels'].append(starting_channels)
 		param_dict['total_params'].append(total_params)
 		param_dict['v_loss'].append(min_vloss)
-		break
+		param_dict['checkpoint_path'].append(checkpoint)
+
 	v_loss_df = pd.DataFrame(param_dict)
 	return v_loss_df
 
 
-def get_state_and_show(file_name) -> None:
-	saved_classifier = load_model(file_name)
-	saved_classifier = saved_classifier.cuda()
-	summary(saved_classifier, (1000, 3, 32, 32))
-	saved_classifier = torch.compile(saved_classifier)
+def get_state_and_show_accuracy(checkpoint_path) -> None:
+	classifier_params, model_state = torch.load(checkpoint_path)
+	classifier = Classifier(**classifier_params)
+	best_classifier = classifier.cuda()
+	summary(best_classifier, (100, 3, 32, 32))
+	best_classifier = torch.compile(best_classifier)
+	working_dir = Path.cwd()
 
-	saved_classifier.eval()
-	tr, valid = load_cifar_dataset(1000)
+	best_classifier.eval()
+	tr, valid = load_cifar_dataset(working_dir, 1000)
 	classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 	correct_pred = {classname: 0 for classname in classes}
 	total_pred = {classname: 0 for classname in classes}
-	AppLog.info(f'Showing perf of {file_name}')
+	AppLog.info(f'Showing perf of {checkpoint_path}')
 
 	with torch.no_grad():
 		for img, labels in tr:
 			img = img.cuda()
-			result, normed = saved_classifier.forward(img)
+			result, normed = best_classifier.forward(img)
 			pred_labels = torch.argmax(normed, dim=1).cpu()
 
 			# conf_matrix = multiclass_confusion_matrix(pred_labels, labels, 10)
@@ -110,13 +109,14 @@ def get_state_and_show(file_name) -> None:
 					correct_pred[classes[label]] += 1
 				total_pred[classes[label]] += 1
 
+
 	for classname, correct_count in correct_pred.items():
 		accuracy = 100 * float(correct_count) / total_pred[classname]
 		AppLog.info(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
 
 
 def show_model_accuracy() -> None:
-	get_state_and_show('classifier_best.pth')
+	get_state_and_show_accuracy('classifier_best.pth')
 
 
 if __name__ == '__main__':
