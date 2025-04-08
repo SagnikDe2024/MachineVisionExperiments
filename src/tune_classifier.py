@@ -8,6 +8,7 @@ import torch
 from ray import tune
 from ray.tune import Result, RunConfig, Tuner
 from ray.tune.schedulers import ASHAScheduler
+from ray.tune.search.optuna import OptunaSearch
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import transforms
 
@@ -51,21 +52,21 @@ class TuneClassifier:
 		self.checkpoint_store = self.working_dir / 'checkpoints'
 		scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=5,
 								  reduction_factor=3)
-		# search = OptunaSearch(metric='v_loss', mode='min',study_name='tune_classifier')
+		search = OptunaSearch(metric='v_loss', mode='min', study_name='tune_classifier')
 		self.tune_run_config = RunConfig(name='tune_classifier', storage_path=f'{self.checkpoint_store}', )
 		experiment = ExperimentModels(create_classifier_from_config,
 									  lambda batch: load_cifar_dataset(self.working_dir, int(batch)))
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
-		self.search_space = {'learning_rate'    : tune.choice([0.01, 0.02, 0.03]),
+		self.search_space = {'learning_rate': tune.choice([0.01, 0.02]),
 							 'fcn_layers'       : tune.choice([4, 5]),
 							 'starting_channels': tune.quniform(32, 48, 2),
 							 # 'cnn_layers'       : tune.sample_from(lambda spec: get_cnn_layers_sample(spec)),
 							 'cnn_layers'       : tune.choice([5, 6]), 'final_channels': tune.quniform(128, 256, 2),
-							 'batch_size'       : tune.quniform(125, 500, 25)}
+							 'batch_size'   : tune.quniform(100, 300, 25)}
 
-		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.32})
+		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.5})
 		self.tune_config = tune.TuneConfig(num_samples=samples, trial_dirname_creator=self.trial_dir_name,
-										   max_concurrent_trials=5, scheduler=scheduler)
+										   max_concurrent_trials=2, scheduler=scheduler, search_alg=search)
 
 	# This is done as sometimes ray tune creates directories with invalid characters
 	def trial_dir_name(self, params) -> str:
@@ -73,7 +74,7 @@ class TuneClassifier:
 		param_s = f'{params}'
 		hashed = f'{hash(param_s)}'
 		self.dir_num += 1
-		return f'2_{save_time}_{hashed}_{self.dir_num}'
+		return f'3_{save_time}_{hashed}_{self.dir_num}'
 
 	def tune_classifier_model(self, restore=True):
 
