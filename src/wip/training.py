@@ -37,7 +37,7 @@ class TrainModel:
 			loss.backward()
 			self.optimizer.step()
 			running_loss += loss.item()
-			AppLog.info(
+			AppLog.debug(
 					f'Epoch [{epoch + 1}/{EPOCHS}]: Batch [{train_batch_index}]: Loss: '
                     f'{running_loss / train_batch_index}')
 		avg_loss = running_loss / train_batch_index
@@ -56,7 +56,7 @@ class TrainModel:
 				v_loss = self.loss_fn(raw_prob, label)
 				running_vloss += v_loss.item()
 				valid_batch_index += 1
-				AppLog.info(
+				AppLog.debug(
 						f'Epoch [{epoch + 1}/{EPOCHS}]: V_Batch [{valid_batch_index}]: V_Loss: '
 						f'{running_vloss / valid_batch_index}')
 		avg_vloss = running_vloss / valid_batch_index
@@ -81,7 +81,7 @@ class TrainModel:
 						f'Early stopping at {self.current_epoch + 1} epochs as (validation loss = {avg_vloss})/(best '
                         f'validation loss = {self.best_vloss}) > {loss_best_threshold} ')
 				break
-			elif no_improvement > 4:
+			elif no_improvement > 9:
 				AppLog.warning(
 						f'Early stopping at {self.current_epoch + 1} epochs as validation loss = {avg_vloss} has shown '
                         f'no improvement over {no_improvement} epochs')
