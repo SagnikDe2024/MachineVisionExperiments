@@ -1,42 +1,11 @@
-from dataclasses import dataclass
-from math import log2
-from typing import List
-
+import torch
+from numpy import log2
 from torch import nn
 
 from src.utils.common_utils import AppLog
 
 
-@dataclass
-class NewSize:
-	starting_size: int
-	ratio: float
-
-
-@dataclass
-class SquareKernel:
-	kernel_size: int
-
-
-@dataclass
-class SeparatedKernel:
-	kernel_size: int
-	parameter_ratio: float
-	intermediate_ratio: float
-
-
-CNNKernel = SquareKernel | SeparatedKernel
-
-
-# The function will make a 1×k kernel followed by a k×1 kernel with c_in^(1-a)×c_out^a intermediate channels.
-# By default, c_intermediate is geometric mean of c_in and c_out i.e. a = 1/2.
-# The other parameter that can be used is 'r' which is the ratio of parameters of an original k×k kernel.
-# Since a k×k kernel has (k×k×c_in + 1)×c_out parameters, the number total number of parameters
-# of the new two kernels will be roughly r×(k×k×c_in + 1)×c_out parameters.
-# The 'a' will be calculated automatically. It will warn if the calculated 'a' falls outside [0,1].
-
-
-def generate_separated_kernels(k_size: int, input_channel: int, output_channel: int, a: float = (1 / 2), r: float = 0.0,
+def generate_separated_kernels(input_channel: int, output_channel: int, k_size: int, a: float = (1 / 2), r: float = 0.0,
 							   add_padding: bool = True, bias=False, stride: int = 1):
 	c_in = input_channel
 	c_out = output_channel
@@ -44,7 +13,7 @@ def generate_separated_kernels(k_size: int, input_channel: int, output_channel: 
 	k = k_size
 
 	if 0 < r < 1 and t != 1:
-		a = log2(c_in * k ** 2 * r + r - 1) / log2(t) - log2(c_in * k * (t + 1) + 1) / log2(t) + 1
+		a = log2((t + 1) / (t * r * k)) / log2(1 / t)
 
 	c_intermediate = int(round((c_in ** (1 - a) * c_out ** a), 0))
 	AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
@@ -53,55 +22,125 @@ def generate_separated_kernels(k_size: int, input_channel: int, output_channel: 
 				f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
 	padding = k // 2 if add_padding else 0
 
-	conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (k, 1), padding=(padding, 0), bias=bias,stride=stride)
-	conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (1, k), padding=(0, padding), bias=bias,stride=stride)
+	conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (1, k), padding=(0, padding), bias=bias, stride=(1, stride))
+	conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (k, 1), padding=(padding, 0), bias=bias, stride=(stride, 1))
+
 	return conv_layer_1, conv_layer_2
 
 
-def conv_kernel(k_size: int, input_channel: int, output_channel: int, separable, ratio):
-	if separable:
-		if ratio > 1:
-			return generate_separated_kernels(k_size, input_channel, output_channel, add_padding=False)
-		else:
-			return generate_separated_kernels(k_size, input_channel, output_channel, add_padding=True)
-	else:
-		if ratio > 1:
-			return nn.Conv2d(input_channel, output_channel, kernel_size=k_size)
-		else:
-			return nn.Conv2d(input_channel, output_channel, kernel_size=k_size, padding=k_size // 2)
+class InputLayer(nn.Module):
+	def __init__(self, in_channel, out_channel):
+		super().__init__()
+		self.layer_1_1 = nn.Conv2d(in_channels=in_channel, out_channels=out_channel, kernel_size=3, stride=2,
+								   padding=1,
+								   bias=False)
+		layer_1_2_conv1, layer_1_2_conv2 = generate_separated_kernels(in_channel, out_channel, k_size=5, stride=2,
+																	  r=9 / 25)
+		self.layer_1_2_conv1 = layer_1_2_conv1
+		self.layer_1_2_conv2 = layer_1_2_conv2
+		self.norm = nn.BatchNorm2d(out_channel * 2)
+		self.activation = nn.Mish()
+
+	def forward(self, x):
+		x3 = self.layer_1_1.forward(x)
+		x5_1 = self.layer_1_2_conv1.forward(x)
+		x5_2 = self.layer_1_2_conv2.forward(x5_1)
+		x3and5 = torch.concat([x3, x5_2], 1)
+		normed = self.norm.forward(x3and5)
+		# reduced = self.reduce_conv.forward(normed)
+		activated = self.activation.forward(normed)
+		return activated
 
 
-def channel_kernel_compute(inp_out_channels: List[int], layers: int):
-	in_channel = inp_out_channels[0]
-	out_channel = inp_out_channels[1]
-	ratio = (out_channel / in_channel) ** (1 / layers)
-	channels = [round(in_channel * ratio ** x) for x in range(layers + 1)]
-	return channels
+class MiddleLayer(nn.Module):
+	def __init__(self, in_channel, out_channel):
+		super().__init__()
+		layer_1_1_conv1, layer_1_1_conv2 = generate_separated_kernels(in_channel, out_channel, k_size=3, stride=2,
+																	  r=2 / 3)
+		self.layer_1_1_conv1 = layer_1_1_conv1
+		self.layer_1_1_conv2 = layer_1_1_conv2
+		# self.layer_1_1 = nn.Conv2d(in_channels=in_channel, out_channels=out_channel, kernel_size=3, stride=2,
+		# padding=1,bias=False)
+		layer_1_2_conv1, layer_1_2_conv2 = generate_separated_kernels(in_channel, out_channel, k_size=5, stride=2,
+																	  r=9 / 25)
+		self.layer_1_2_conv1 = layer_1_2_conv1
+		self.layer_1_2_conv2 = layer_1_2_conv2
+		self.norm = nn.BatchNorm2d(out_channel * 2)
+		self.activation = nn.Mish()
+
+	def forward(self, x):
+		x3_1 = self.layer_1_1_conv1.forward(x)
+		x3_2 = self.layer_1_1_conv2.forward(x3_1)
+		x5_1 = self.layer_1_2_conv1.forward(x)
+		x5_2 = self.layer_1_2_conv2.forward(x5_1)
+		x3and5 = torch.concat([x3_2, x5_2], 1)
+		normed = self.norm.forward(x3and5)
+		activated = self.activation.forward(normed)
+		return activated
+
+
+class EncoderAux(nn.Module):
+	def __init__(self, channels):
+		super().__init__()
+		self.input_layer = InputLayer(in_channel=channels[0], out_channel=channels[1])
+		self.reduce_conv_input = nn.Conv2d(in_channels=channels[1] * 2, out_channels=(channels[1]), kernel_size=1,
+										   stride=1,
+										   padding=0)
+		self.middle_layer_1 = MiddleLayer(in_channel=channels[1], out_channel=channels[2])
+		self.reduce_conv_1 = nn.Conv2d(in_channels=channels[2] * 2, out_channels=(channels[2]), kernel_size=1,
+									   stride=1,
+									   padding=0)
+		self.middle_layer_2 = MiddleLayer(in_channel=channels[2], out_channel=channels[3])
+		self.reduce_conv_2 = nn.Conv2d(in_channels=channels[3] * 2, out_channels=channels[3], kernel_size=1,
+									   stride=1, padding=0)
+		self.middle_layer_3 = MiddleLayer(in_channel=channels[3], out_channel=channels[4])
+		self.reduce_conv_3 = nn.Conv2d(in_channels=channels[4] * 2, out_channels=channels[4], kernel_size=1,
+									   stride=1, padding=0)
+
+	def forward(self, x):
+		x1 = self.input_layer.forward(x)
+		x1_r = self.reduce_conv_input.forward(x1)
+		x2 = self.middle_layer_1.forward(x1_r)
+		x2_r = self.reduce_conv_1.forward(x2)
+		x3 = self.middle_layer_2.forward(x2_r)
+		x3_r = self.reduce_conv_2.forward(x3)
+		x4 = self.middle_layer_3.forward(x3_r)
+		x4_r = self.reduce_conv_3.forward(x4)
+		return x4_r
+
+
+class Encoder(nn.Module):
+	def __init__(self, channels):
+		super().__init__()
+		self.encoder_aux = EncoderAux(channels)
+
+	def forward(self, x):
+		x_w = x
+		z_w = self.encoder_aux.forward(x_w)
+		x_h = torch.rot90(x, 1, (2, 3))
+		z_h_a = self.encoder_aux.forward(x_h)
+		z_h = torch.rot90(z_h_a, -1, (2, 3))
+		return torch.concat([z_w, z_h], 1)
 
 
 class Decoder(nn.Module):
-	def __init__(self, input_size, output_size, kernel_sizes=None, channels=None, last_activation=nn.Tanh()) -> None:
+	def __init__(self, channels=None, last_activation=nn.Tanh()) -> None:
 		super().__init__()
-		size = input_size
-		layers = len(kernel_sizes)
-		upscale_ratio = (output_size / size) ** (1 / layers)
-		upsized_channels = [int(round(size * upscale_ratio ** (layer + 1), 0)) for layer in range(layers)]
+		layers = 4
+		upscale_ratio = 2
 		AppLog.info(
-				f'Layers = {layers}, upsizing without kernel included = {upsized_channels}, channels = {channels}')
+				f'Layers = {layers}, channels = {channels}')
 
 		sequence = nn.Sequential()
 		for layer in range(layers):
-			up_size = upsized_channels[layer]
 			ch_in = channels[layer]
 			ch_out = channels[layer + 1]
-			kernel_size = kernel_sizes[layer]
-			k_1 = kernel_size - 1
-			upsample_layer = nn.UpsamplingBilinear2d(size=up_size + k_1)
+
+			upsample_layer = nn.Upsample(scale_factor=upscale_ratio, mode='bicubic')
 			sequence.append(upsample_layer)
-			conv_layer = nn.Conv2d(ch_in, ch_out, kernel_size,
-								   bias=False) if kernel_size <= 3 else generate_separated_kernels(
-					kernel_size, ch_in, ch_out, r=9 / 25, add_padding=False)
-			sequence.append(conv_layer)
+			conv_layer_1, conv_layer_2 = generate_separated_kernels(ch_in, ch_out, 5, r=10 / 25, add_padding=True)
+			sequence.append(conv_layer_1)
+			sequence.append(conv_layer_2)
 			sequence.append(nn.BatchNorm2d(ch_out))
 			if layer < layers - 1:
 				activation_layer = nn.Mish()
@@ -111,66 +150,5 @@ class Decoder(nn.Module):
 				sequence.append(activation_layer)
 		self.sequence = nn.Sequential(*sequence)
 
-	@classmethod
-	def single_kernel_decode(cls, input_size, output_size, kernel_sizes, inp_out_channels):
-		layers = len(kernel_sizes)
-
-		if len(inp_out_channels) == 2 and layers > 1:
-			channels = channel_kernel_compute(inp_out_channels, layers)
-		elif len(inp_out_channels) == 3 and layers > 2:
-			channels_before = channel_kernel_compute(inp_out_channels[:-1], layers - 1)
-			channels = [*channels_before, inp_out_channels[-1]]
-		else:
-			channels = [*inp_out_channels]
-		print(f'Decoder channels and kernels: {channels},{kernel_sizes}')
-		dec = Decoder(input_size, output_size, kernel_sizes, channels)
-		return dec
-
 	def forward(self, latent_z):
 		return self.sequence.forward(latent_z)
-
-
-class Encoder(nn.Module):
-	def __init__(self, input_size, output_size, kernel_sizes=None, channels=None) -> None:
-		super().__init__()
-
-		layers = len(kernel_sizes)
-		downscale_ratio = (output_size / input_size) ** (1 / layers)
-		sequence = []
-		downsampled_sizes = [int(round(input_size * downscale_ratio ** (layer + 1), 0)) for layer in range(layers)]
-		AppLog.info(
-				f'Layers = {layers}, downsampled_sizes = {downsampled_sizes}, channels = {channels}')
-
-		for layer in range(layers):
-			ch_in, ch_out = channels[layer], channels[layer + 1]
-			kernel_size = kernel_sizes[layer]
-			# padding = kernel_size // 2
-			conv_layer1, conv_layer2 = generate_separated_kernels(kernel_size, ch_in, ch_out)
-
-			# conv_layer = nn.Conv2d(ch_in, ch_out, kernel_size, padding=padding)
-			activation_layer = nn.Mish()
-			pooling_layer = nn.FractionalMaxPool2d(2, output_size=downsampled_sizes[layer])
-			sequence.append(conv_layer1)
-			sequence.append(conv_layer2)
-			sequence.append(nn.BatchNorm2d(ch_out))
-			sequence.append(activation_layer)
-			sequence.append(pooling_layer)
-		self.sequence = nn.Sequential(*sequence)
-
-	@classmethod
-	def single_kernel_encode(cls, input_size, output_size, kernel_sizes, inp_out_channels):
-		layers = len(kernel_sizes)
-
-		if len(inp_out_channels) == 2 and layers > 1:
-			channels = channel_kernel_compute(inp_out_channels, layers)
-		elif len(inp_out_channels) == 3 and layers > 2:
-			channels_later = channel_kernel_compute(inp_out_channels[1:], layers - 1)
-			channels = [inp_out_channels[0], *channels_later]
-		else:
-			channels = [*inp_out_channels]
-		print(f'Encoder channels and kernels: {channels},{kernel_sizes}')
-		enc = Encoder(input_size, output_size, kernel_sizes, channels)
-		return enc
-
-	def forward(self, input_x):
-		return self.sequence.forward(input_x)

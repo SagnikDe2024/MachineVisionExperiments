@@ -1,6 +1,5 @@
 import os
 import tempfile
-from multiprocessing import Queue
 
 import torch
 from ray import tune
@@ -38,7 +37,7 @@ class TrainModel:
 			loss.backward()
 			self.optimizer.step()
 			running_loss += loss.item()
-			AppLog.info(
+			AppLog.debug(
 					f'Epoch [{epoch + 1}/{EPOCHS}]: Batch [{train_batch_index}]: Loss: '
                     f'{running_loss / train_batch_index}')
 		avg_loss = running_loss / train_batch_index
@@ -57,8 +56,9 @@ class TrainModel:
 				v_loss = self.loss_fn(raw_prob, label)
 				running_vloss += v_loss.item()
 				valid_batch_index += 1
-				AppLog.info(
-						f'Epoch [{epoch + 1}/{EPOCHS}]: V_Batch [{valid_batch_index}]: V_Loss: {running_vloss / (valid_batch_index)}')
+				AppLog.debug(
+						f'Epoch [{epoch + 1}/{EPOCHS}]: V_Batch [{valid_batch_index}]: V_Loss: '
+						f'{running_vloss / valid_batch_index}')
 		avg_vloss = running_vloss / valid_batch_index
 		return avg_vloss
 
@@ -81,7 +81,7 @@ class TrainModel:
 						f'Early stopping at {self.current_epoch + 1} epochs as (validation loss = {avg_vloss})/(best '
                         f'validation loss = {self.best_vloss}) > {loss_best_threshold} ')
 				break
-			elif no_improvement > 4:
+			elif no_improvement > 9:
 				AppLog.warning(
 						f'Early stopping at {self.current_epoch + 1} epochs as validation loss = {avg_vloss} has shown '
                         f'no improvement over {no_improvement} epochs')
@@ -95,7 +95,15 @@ class TrainModel:
 		return self.best_vloss, self.model.model_params
 
 
-# serialization_queue = Queue(maxsize=40)
+def save_checkpoint(avg_vloss: float, model: nn.Module, epoch: int) -> None:
+	with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
+		model_name_temp = f'model_checkpoint.pth'
+		torch.save((model.model_params, model.state_dict()),
+				   os.path.join(temp_checkpoint_dir, model_name_temp))
+		checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
+		tune.report({'v_loss': avg_vloss, 'epoch': (epoch + 1)}, checkpoint=checkpoint)
+
+
 
 
 class ExperimentModels:
@@ -104,25 +112,11 @@ class ExperimentModels:
 		self.model_creator_func = model_creator_func
 		self.loader_func = loader_func
 
-		# self.save_process = Process(target=self.queued_result, args=(serialization_queue,
-    # ))  # self.save_process.start()
-
-	def save_checkpoint(self, avg_vloss: float, classifier: nn.Module, epoch: int) -> None:
-		with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
-			model_name_temp = f'classifier_tuned.pth'
-			torch.save((classifier.model_params, classifier.state_dict()),
-					   os.path.join(temp_checkpoint_dir, model_name_temp))
-			checkpoint = Checkpoint.from_directory(temp_checkpoint_dir)
-			tune.report({'v_loss': avg_vloss, 'epoch': (epoch + 1)}, checkpoint=checkpoint)
-
-	def queued_result(self, q: Queue) -> None:
-		avg_vloss, classifier, epoch = q.get()
-		self.save_checkpoint(avg_vloss, classifier, epoch)
-
 	def execute_single_experiment(self, model_config, batch_size, lr):
-		model = self.model_creator_func(model_config)
+		model: nn.Module = self.model_creator_func(model_config)
+		batch_size = int(round(batch_size))
 		train_loader, validation_loader = self.loader_func(batch_size)
-		model_summary = summary(model, input_size=(batch_size, 3, 32, 32), verbose=0)
+		model_summary = summary(model, input_size=(batch_size, 3, 32, 32))
 
 		optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 		loss_fn = nn.CrossEntropyLoss()
@@ -130,12 +124,19 @@ class ExperimentModels:
 		trainable_params = model_summary.trainable_params
 		AppLog.info(f'There are {trainable_params} trainable parameters.')
 
-		train_model = TrainModel(self.save_checkpoint, model, loss_fn, optimizer, device, 0, 50)
+		checkpoint = tune.get_checkpoint()
+		start = 0
+		if checkpoint:
+			with checkpoint.as_directory() as checkpoint_dir:
+				checkpoint_dict = torch.load(os.path.join(checkpoint_dir, "model_checkpoint.pth"))
+				start = checkpoint_dict["epoch"]
+				model.load_state_dict(checkpoint_dict["model_state"])
+		torch.set_float32_matmul_precision('high')
+		model = torch.compile(model, mode="max-autotune")
+		train_model = TrainModel(save_checkpoint, model, loss_fn, optimizer, device, start, 50)
 		best_vloss, model_params = train_model.train_and_evaluate(train_loader, validation_loader)
 		AppLog.info(
 				f'Best vloss: {best_vloss}, with {trainable_params} params. Performance per param (Higher is better) = '
                 f'{1 / (trainable_params * best_vloss)}')
 		AppLog.info(f'Classifier best vloss: {best_vloss}, training done. Model params: {model_params}.')
 		return {'v_loss': best_vloss, 'trainable_params': trainable_params, 'model_params': model_params}
-
-	# def shutdown_checkpoint(self):  #     self.save_process.close()  #     self.save_process.join()

@@ -1,7 +1,9 @@
 import inspect
 import logging
 import os
+import sys
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
+from pathlib import Path
 from queue import Queue
 from typing import Optional
 
@@ -19,27 +21,32 @@ class AppLog:
 	def _initialize_logger(self) -> None:
 		"""Initialize the logger with rotating file handler"""
 		if self._logger is None:
+			pid = os.getpid()
 			self._logger = logging.getLogger('ApplicationLogger')
 			self._logger.setLevel(logging.INFO)  # Default level
 
 			log_que = Queue(maxsize=1024)
 			q_handle = QueueHandler(log_que)
+			file_dir = Path(__file__).parent.resolve()
+			logdir = file_dir.parent.parent / 'log'
+			logfile = logdir / f'application_{pid}.log'
+			print('Logging to {}'.format(logfile))
 
-			handler = RotatingFileHandler('C:/mywork/python/ImageEncoderDecoder/log/application.log',
-										  maxBytes=3 * 1024 * 1024,  # 3MB
+			handler = RotatingFileHandler(logfile,
+										  maxBytes=1 * 1024 * 1024,  # 1MB
 										  backupCount=5, encoding='utf-8')
 
 			# Format for the log messages
 			formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 			handler.setFormatter(formatter)
 
-
 			# Console handler
-			# console_handler = logging.StreamHandler(sys.stdout)
-			# console_handler.setFormatter(formatter)
+			console_handler = logging.StreamHandler(sys.stdout)
+			console_handler.setFormatter(formatter)
+			console_handler.setLevel(logging.INFO)
 
 			# self._logger.addHandler(console_handler)
-			self._q_listener = QueueListener(log_que, handler)
+			self._q_listener = QueueListener(log_que, handler, console_handler)
 			self._logger.addHandler(q_handle)
 			self._q_listener.start()
 
