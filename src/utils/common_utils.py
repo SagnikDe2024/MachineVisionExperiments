@@ -1,6 +1,7 @@
 import inspect
 import logging
 import os
+import sys
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from pathlib import Path
 from queue import Queue
@@ -32,7 +33,7 @@ class AppLog:
 			print('Logging to {}'.format(logfile))
 
 			handler = RotatingFileHandler(logfile,
-										  maxBytes=3 * 1024 * 1024,  # 3MB
+										  maxBytes=1 * 1024 * 1024,  # 1MB
 										  backupCount=5, encoding='utf-8')
 
 			# Format for the log messages
@@ -40,11 +41,12 @@ class AppLog:
 			handler.setFormatter(formatter)
 
 			# Console handler
-			# console_handler = logging.StreamHandler(sys.stdout)
-			# console_handler.setFormatter(formatter)
+			console_handler = logging.StreamHandler(sys.stdout)
+			console_handler.setFormatter(formatter)
+			console_handler.setLevel(logging.INFO)
 
 			# self._logger.addHandler(console_handler)
-			self._q_listener = QueueListener(log_que, handler)
+			self._q_listener = QueueListener(log_que, handler, console_handler)
 			self._logger.addHandler(q_handle)
 			self._q_listener.start()
 
