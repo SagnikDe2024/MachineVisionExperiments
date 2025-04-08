@@ -107,7 +107,7 @@ def get_state_and_show_accuracy(checkpoint_path) -> dict[str, float]:
 	AppLog.info(f'Showing perf of {checkpoint_path}')
 
 	with torch.no_grad():
-		for img, labels in tr:
+		for img, labels in valid:
 			img = img.cuda()
 			result, normed = best_classifier.forward(img)
 			pred_labels = torch.argmax(normed, dim=1).cpu()
@@ -131,12 +131,23 @@ def show_model_accuracy() -> None:
 
 
 if __name__ == '__main__':
-	result_df = find_classify_checkpoint()
-	min_vloss = result_df.v_loss.min()
-	min_vloss_row = result_df[
-		result_df.v_loss == min_vloss]
-	pd.options.display.max_columns = None
-	print(f'{min_vloss_row}')
+	# result_df = find_classify_checkpoint()
+	# min_vloss = result_df.v_loss.min()
+	# min_vloss_row = result_df[
+	# 	result_df.v_loss == min_vloss]
+	# pd.options.display.max_columns = None
+	# print(f'{min_vloss_row}')
+	# checkpoint_used = min_vloss_row.to_dict()['checkpoint_path']
+	#
+	# check = [v for k,v in checkpoint_used.items()][0]
+	# AppLog.info(f'Checkpoint used: {check}')
+	work_path = Path.cwd()
+	chkpath = (work_path / 'checkpoints' / 'tune_classifier' / '4_20250408T035811_-8491173734139600649_1' /
+			   'checkpoint_000009' / 'model_checkpoint.pth')
+	# path = Path('C:\mywork\python\MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_
+	# -8491173734139600649_1\checkpoint_000009\model_checkpoint.pth')
+	get_state_and_show_accuracy(chkpath)
+
 	AppLog.shut_down()
 
 # removed_empty_checkpoint_directory()
