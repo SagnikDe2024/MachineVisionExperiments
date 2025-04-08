@@ -57,7 +57,7 @@ class TuneClassifier:
 		experiment = ExperimentModels(create_classifier_from_config,
 									  lambda batch: load_cifar_dataset(self.working_dir, int(batch)))
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
-		self.search_space = {'learning_rate': tune.choice([0.01, 0.02]),
+		self.search_space = {'learning_rate': tune.choice([0.001, 0.002, 0.003, 0.004]),
 							 'fcn_layers'       : tune.choice([4, 5]),
 							 'starting_channels': tune.quniform(32, 48, 2),
 							 # 'cnn_layers'       : tune.sample_from(lambda spec: get_cnn_layers_sample(spec)),
@@ -74,7 +74,7 @@ class TuneClassifier:
 		param_s = f'{params}'
 		hashed = f'{hash(param_s)}'
 		self.dir_num += 1
-		return f'3_{save_time}_{hashed}_{self.dir_num}'
+		return f'4_{save_time}_{hashed}_{self.dir_num}'
 
 	def tune_classifier_model(self, restore=True):
 
