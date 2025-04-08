@@ -88,6 +88,12 @@ def find_classify_checkpoint():
 def get_state_and_show_accuracy(checkpoint_path) -> dict[str, float]:
 	classifier_params, model_state = torch.load(checkpoint_path)
 	classifier = Classifier(**classifier_params)
+	# WTF ?! The compiled model is saved with a `_orig_mod` in the keys. Apparently the weights are shared with
+	# uncompiled model but there is no documentation for that ...
+
+	for key in list(model_state.keys()):
+		model_state[key.replace("_orig_mod.", "")] = model_state.pop(key)
+	classifier.load_state_dict(model_state)
 	best_classifier = classifier.cuda()
 	summary(best_classifier, (100, 3, 32, 32))
 	best_classifier = torch.compile(best_classifier)
