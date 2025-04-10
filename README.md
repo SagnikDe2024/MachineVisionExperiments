@@ -14,6 +14,8 @@ The tuning is done with the help of Ray Tune (ASHAScheduler and Optuna space sea
 2025-04-08 14:34:13,696 - INFO - [classifier.py:__init__] Classifier channel upscale ratio: 1.3548533596918833
 2025-04-08 14:34:13,696 - INFO - [classifier.py:__init__] Layers = 6, downsampled_sizes = [20, 13, 8, 5, 3, 2], channels = [3, 46, 62, 84, 114, 155, 210]
 2025-04-08 14:34:13,705 - INFO - [classifier.py:__init__] FCN layers: [840, 277, 92, 30, 10]
+
+
 ===============================================================================================
 Layer (type:depth-idx)                        Output Shape              Param #
 ===============================================================================================
@@ -67,14 +69,62 @@ Params size (MB): 3.50
 Estimated Total Size (MB): 163.72
 ===============================================================================================
 2025-04-08 14:34:25,611 - INFO - [tune_classifier.py:load_cifar_dataset] 50000 training samples and 10000 validation samples
-2025-04-08 14:34:25,611 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Showing perf of C:\mywork\python\MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_-8491173734139600649_1\checkpoint_000009\model_checkpoint.pth
-2025-04-08 14:34:52,281 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: plane is 86.3 %
-2025-04-08 14:34:52,281 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: car   is 89.4 %
-2025-04-08 14:34:52,281 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: bird  is 74.9 %
-2025-04-08 14:34:52,281 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: cat   is 74.3 %
-2025-04-08 14:34:52,282 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: deer  is 84.7 %
-2025-04-08 14:34:52,282 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: dog   is 71.9 %
-2025-04-08 14:34:52,282 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: frog  is 84.4 %
-2025-04-08 14:34:52,282 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: horse is 81.8 %
-2025-04-08 14:34:52,282 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: ship  is 93.5 %
-2025-04-08 14:34:52,282 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: truck is 89.2 %
+MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_-8491173734139600649_1\checkpoint_000009\model_checkpoint.pth
+
+
+
+
+
+
+Using ray tune for hyperparameter optimization, the optuna searcher finally narrowed down to the following parameters.
+
+| Parameters        | Value |
+|-------------------|-------|
+| batch_size        | 125   |
+| cnn_layers        | 6     |
+| fcn_layers        | 4     |
+| final_channels    | 210   |
+| learning_rate     | 0.001 |
+| starting_channels | 46    |
+
+The final model has 875,592 parameters with an estimated parameter size of 3.5 MB. 
+The accuracy achieved for each of the CIFAR-10 classes is shown below.
+
+| Class | Accuracy (%) |
+|-------|--------------|
+| plane | 86.3         |
+| car   | 89.4         |
+| bird  | 74.9         |
+| cat   | 74.3         |
+| deer  | 84.7         |
+| dog   | 71.9         |
+| frog  | 84.4         |
+| horse | 81.8         |
+| ship  | 93.5         |
+| truck | 89.2         |
+
+The validation loss is 0.541896045207977.  
+
+CIFAR-10 is extremely challenging to improve accuracy on. The classes 'cat' and 'dog' seemed to cause the most problems.
+All the models achieving >90% accuracy seemed to use much larger number of parameters and featured skip connections. 
+
+My expectation was that the starting number of channels must be something like 24-32 and the very end of the CNN we could have something like 250 or so features
+being extracted. Howevever it seems that the final result is that there should be 46 features to be extracted in the 
+first layer and 'only' 210 needed to be extracted in the last one. 
+
+
+
+(Probably F1 scores will show better results).
+
+Inspired by image generation systems like Stable Diffusion and Flux, an attempt was made to create a VAE
+so that one can generate multiple samples as long as the $\sigma$ and $\mu$ 
+
+To fully realize the project one needs 
+1) 
+
+
+
+This started out as wa
+
+
+
