@@ -1,6 +1,7 @@
-This repository contains some experiments and designs for machine vision, image generation experiments.
+This repository contains some experiments I am doing on images, different designs for machine vision, image generation
+experiments.
 
-Currently there is an image classification and one image encode - decoder (WIP) related model being designed.
+Currently, there is an image classification and one image encode - decoder (WIP) related model being designed.
 
 The classification model went through various changes until we finally go
 
@@ -29,7 +30,8 @@ Using ray tune for hyperparameter optimization, the optuna searcher finally narr
 
 The final model has 875,592 parameters with an estimated parameter size of 3.1 MB. A large number of parameters ~60% are
 taken up by the last CNN (293160) and the first FCN (232957) layer.
-The accuracy achieved for each of the CIFAR-10 classes is shown below.
+The accuracy achieved for each of the CIFAR-10 classes is shown
+below.^[Probably F1 is a better indication. Just using accuracy as everyone else seems to be using it]
 
 | Class | Accuracy (%) |
 |-------|--------------|
@@ -84,8 +86,7 @@ Annoyances:
 5) The ray tune directory naming can cause issues in Windows, and it has a tendency to use illegal characters. So a new
    directory naming scheme needed to be created.
 
-(Probably F1 scores will show better results).
-
+This started out as a personal project image generation and has evolved (devolved ?) to something else.
 Inspired by image generation systems like Stable Diffusion and Flux, an attempt was made to create a VAE
 so that one can generate multiple samples as long as the $\sigma$ and $\mu$
 
@@ -103,9 +104,18 @@ This is very hard to explain but let us assume that there are 2 classes $\righta
 3) Looking through existing literature it is obvious that the generated images from VAEs are blurry which somehow
    escaped my attention during my first reading. This can confuse the classifier. There are VQ-VAEs and Normalizing
    Flows (NF) but the design of NF is very different from VAEs in general.
-4)
+4) Maybe using $N(0,1)$ as a prior is not a good idea, perhaps using a power law distribution is better. Not sure how to
+   do KL-Divergence of power law though and then minimizing it.
 
-This started out as wa
+If I am using normalized flows maybe we can have some model like the one below where Jacobian is generated using the
+text encoder
+and instead of operating directly on the image, operates on smaller dimensional $z$
+$$ x \rightarrow ImageEncoder \rightarrow z$$
+$$ t \rightarrow TextEncoder \rightarrow J$$
+$$ z \rightarrow J \rightarrow z_g$$
+$$ z_g \rightarrow ImageDecoder \rightarrow x_g$$
+
+Anyway I think I need a classifier model and an image encoder and decoder model. 
 
 
 
