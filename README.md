@@ -109,7 +109,7 @@ This is very hard to explain but let us assume that there are 2 classes $\righta
 
 If I am using normalized flows maybe we can have some model like the one below where Jacobian is generated using the
 text encoder
-and instead of operating directly on the image, operates on smaller dimensional $z$
+and instead of operating directly on the image, operates on smaller dimensional $z$\
 $$ x \rightarrow ImageEncoder \rightarrow z$$
 $$ t \rightarrow TextEncoder \rightarrow J$$
 $$ z \rightarrow J \rightarrow z_g$$
