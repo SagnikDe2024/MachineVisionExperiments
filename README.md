@@ -10,9 +10,9 @@ The classification model consists of two parts, a set a CNN layers and then a FC
 
 The tuning is done with the help of Ray Tune (ASHAScheduler and Optuna space search).
 
-Classifier channel upscale ratio: 1.3548533596918833
-Layers = 6, downsampled_sizes = [20, 13, 8, 5, 3, 2], channels = [3, 46, 62, 84, 114, 155, 210]
-FCN layers: [840, 277, 92, 30, 10]
+Classifier channel upscale ratio = 1.3548533596918833
+Layers = 6, downsampled_sizes = `[20, 13, 8, 5, 3, 2]`, channels = `[3, 46, 62, 84, 114, 155, 210]`
+FCN layers = `[840, 277, 92, 30, 10]`
 
 MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_
 -8491173734139600649_1\checkpoint_000009\model_checkpoint.pth
@@ -86,6 +86,8 @@ Annoyances:
 5) The ray tune directory naming can cause issues in Windows, and it has a tendency to use illegal characters. So a new
    directory naming scheme needed to be created.
 
+---
+
 This started out as a personal project image generation and has evolved (devolved ?) to something else.
 Inspired by image generation systems like Stable Diffusion and Flux, an attempt was made to create a VAE
 so that one can generate multiple samples as long as the $\sigma$ and $\mu$
@@ -111,16 +113,17 @@ If I am using normalized flows maybe we can have some model like the one below w
 text encoder and instead of operating directly on the image, operates on smaller dimensional $z$
 
 ```math 
-x \rightarrow ImageEncoder \rightarrow z
+x \rightarrow ImageEncoder \rightarrow z  
+t \rightarrow TextEncoder \rightarrow J  
+z \rightarrow J \rightarrow z_g  
+z_g \rightarrow ImageDecoder \rightarrow x_g  
 ```
 
-$$t \rightarrow TextEncoder \rightarrow J$$\
-$$z \rightarrow J \rightarrow z_g$$\
-$$z_g \rightarrow ImageDecoder \rightarrow x_g$$\
+
 
 Anyway I think I need a classifier model and an image encoder and decoder model.
 
-[^1] : Probably F1 is a better indication. Just using accuracy as everyone else seems to be using it.
+[^1]: Probably F1 is a better indication. Just using accuracy as everyone else seems to be using it.
 
 
 
