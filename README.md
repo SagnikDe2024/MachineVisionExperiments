@@ -31,7 +31,9 @@ Using ray tune for hyperparameter optimization, the optuna searcher finally narr
 The final model has 875,592 parameters with an estimated parameter size of 3.1 MB. A large number of parameters ~60% are
 taken up by the last CNN (293160) and the first FCN (232957) layer.
 The accuracy achieved for each of the CIFAR-10 classes is shown
-below.^[Probably F1 is a better indication. Just using accuracy as everyone else seems to be using it]
+below.[^1]
+
+
 
 | Class | Accuracy (%) |
 |-------|--------------|
@@ -108,13 +110,19 @@ This is very hard to explain but let us assume that there are 2 classes $\righta
    do KL-Divergence of power law though and then minimizing it.
 
 If I am using normalized flows maybe we can have some model like the one below where Jacobian is generated using the
-text encoder and instead of operating directly on the image, operates on smaller dimensional $z$\ 
-$$ x \rightarrow ImageEncoder \rightarrow z$$\
-$$ t \rightarrow TextEncoder \rightarrow J$$\
-$$ z \rightarrow J \rightarrow z_g$$\
-$$ z_g \rightarrow ImageDecoder \rightarrow x_g$$\
+text encoder and instead of operating directly on the image, operates on smaller dimensional $z$  
+
+```math 
+x \rightarrow ImageEncoder \rightarrow z
+```
+
+$$t \rightarrow TextEncoder \rightarrow J$$\
+$$z \rightarrow J \rightarrow z_g$$\
+$$z_g \rightarrow ImageDecoder \rightarrow x_g$$\
 
 Anyway I think I need a classifier model and an image encoder and decoder model. 
+
+[^1] : Probably F1 is a better indication. Just using accuracy as everyone else seems to be using it.
 
 
 
