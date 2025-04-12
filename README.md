@@ -175,7 +175,7 @@ Face and a model like Stable Diffusion (or Flux depending on license) and genera
 train a LORA or a DORA to modify the inference of the underlying UNet
 and get results.
 
-Another solution will be to ComfyUI which I use personally.
+Another solution will be to use ComfyUI which I use personally.
 
 [^1]: Probably F1 scores is a better indication. Just using accuracy as everyone else seems to be using it.
 [^acc]: Apparently accuracy is not that [important](https://www.youtube.com/watch?v=-hOytdI3pzU).
