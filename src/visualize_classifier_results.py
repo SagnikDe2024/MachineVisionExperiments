@@ -88,6 +88,12 @@ def find_classify_checkpoint():
 def get_state_and_show_accuracy(checkpoint_path) -> dict[str, float]:
 	classifier_params, model_state = torch.load(checkpoint_path)
 	classifier = Classifier(**classifier_params)
+	# WTF ?! The compiled model is saved with a `_orig_mod` in the keys. Apparently the weights are shared with
+	# uncompiled model but there is no documentation for that ...
+
+	for key in list(model_state.keys()):
+		model_state[key.replace("_orig_mod.", "")] = model_state.pop(key)
+	classifier.load_state_dict(model_state)
 	best_classifier = classifier.cuda()
 	summary(best_classifier, (100, 3, 32, 32))
 	best_classifier = torch.compile(best_classifier)
@@ -101,7 +107,7 @@ def get_state_and_show_accuracy(checkpoint_path) -> dict[str, float]:
 	AppLog.info(f'Showing perf of {checkpoint_path}')
 
 	with torch.no_grad():
-		for img, labels in tr:
+		for img, labels in valid:
 			img = img.cuda()
 			result, normed = best_classifier.forward(img)
 			pred_labels = torch.argmax(normed, dim=1).cpu()
@@ -125,12 +131,23 @@ def show_model_accuracy() -> None:
 
 
 if __name__ == '__main__':
-	result_df = find_classify_checkpoint()
-	min_vloss = result_df.v_loss.min()
-	min_vloss_row = result_df[
-		result_df.v_loss == min_vloss]
-	pd.options.display.max_columns = None
-	print(f'{min_vloss_row}')
+	# result_df = find_classify_checkpoint()
+	# min_vloss = result_df.v_loss.min()
+	# min_vloss_row = result_df[
+	# 	result_df.v_loss == min_vloss]
+	# pd.options.display.max_columns = None
+	# print(f'{min_vloss_row}')
+	# checkpoint_used = min_vloss_row.to_dict()['checkpoint_path']
+	#
+	# check = [v for k,v in checkpoint_used.items()][0]
+	# AppLog.info(f'Checkpoint used: {check}')
+	work_path = Path.cwd()
+	chkpath = (work_path / 'checkpoints' / 'tune_classifier' / '4_20250408T035811_-8491173734139600649_1' /
+			   'checkpoint_000009' / 'model_checkpoint.pth')
+	# path = Path('C:\mywork\python\MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_
+	# -8491173734139600649_1\checkpoint_000009\model_checkpoint.pth')
+	get_state_and_show_accuracy(chkpath)
+
 	AppLog.shut_down()
 
 # removed_empty_checkpoint_directory()
