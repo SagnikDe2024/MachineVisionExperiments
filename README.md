@@ -15,8 +15,7 @@ Currently working on ~~3~~ 2 things
 
 To test the model architecture, the classification was done on the CIFAR-10 dataset. Hyperparameter optimization is
 done using raytune. The searcher used is Optuna and the Scheduler used is ASHAScheduler. The model consists of CNN
-layers
-followed by a FCN part.
+layers followed by a FCN part.
 
 ### Summary of results
 
@@ -100,8 +99,7 @@ MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_
 1) Ray tune has a bug in `tune.quniform` where it completely ignores the quantization if the quantization value is 1.
    Wasted too much valuable man-hours hunting down why some of the training is erroring out.
 2) The model must be compiled before training or the training will be very slow. However, compiled pytorch model not
-   saveable (or picklable) ! Nowhere in the `torch.compile` documentation tells us that. Anyway I found a (
-   workaround)[].
+   [saveable](https://github.com/pytorch/pytorch/issues/101107#issuecomment-1542688089)  (or picklable) ! Nowhere in the `torch.compile` documentation tells us that. Anyway I found a [workaround](https://clay-atlas.com/us/blog/2023/12/03/pytorch-compile-model-state-fict-orig-mod/).
 3) If ray tune is run on a single computer with multiple child processes launched, then the `torch.compile` might have a
    conflict when generating compiled code. So expect an error the first time.
 4) Optuna seems to have issues resuming from an existing tuning experiment which got terminated, preferring to start a
