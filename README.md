@@ -1,23 +1,31 @@
-This repository contains some experiments I am doing on images, different designs for machine vision, image generation
-experiments.
+# ML based imaging experiments.
 
-Currently, there is an image classification and one image encode - decoder (WIP) related model being designed.
+## The repos
 
-The classification model went through various changes until we finally go
+This repository contains some experiments I am doing on images, different designs for machine vision, image compression
+etc. The contents of the repo will change as more data will be added as needed.
 
-The classification is done on CIFAR-10.
-The classification model consists of two parts, a set a CNN layers and then a FCN layer which narrows down to 10 items.
+Currently working on ~~3~~ 2 things
 
-The tuning is done with the help of Ray Tune (ASHAScheduler and Optuna space search).
+1) [~~Image Generation.~~](#image-generation)
+2) [Classification](#classification)
+3) [Image Encoder and Decoder (WIP)](#image-encoder-and-decoder)
 
-Classifier channel upscale ratio = 1.3548533596918833
-Layers = 6, downsampled_sizes = `[20, 13, 8, 5, 3, 2]`, channels = `[3, 46, 62, 84, 114, 155, 210]`
-FCN layers = `[840, 277, 92, 30, 10]`
+## Classification
 
-MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_
--8491173734139600649_1\checkpoint_000009\model_checkpoint.pth
+To test the model architecture, the classification was done on the CIFAR-10 dataset. Hyperparameter optimization is
+done using raytune. The searcher used is Optuna and the Scheduler used is ASHAScheduler. The model consists of CNN
+layers
+followed by a FCN part.
 
-Using ray tune for hyperparameter optimization, the optuna searcher finally narrowed down to the following parameters.
+### Summary of results
+
+Efforts were made to lower the number of CNN and FCN layers and also the number of parameters. Decreasing layers means
+that gradient propagation issues won't appear.
+Also, attempts were made to ensure that the number of parameters < 1M. Focus was on minimizing validation loss while
+keeping the number of parameters < 1M.
+
+With that in mind, the optimizer settled on the following parameters.
 
 | Parameters        | Value |
 |-------------------|-------|
@@ -28,9 +36,10 @@ Using ray tune for hyperparameter optimization, the optuna searcher finally narr
 | learning_rate     | 0.001 |
 | starting_channels | 46    |
 
-The final model has 875,592 parameters with an estimated parameter size of 3.1 MB. A large number of parameters ~60% are
+The final model has 6 CNN layers and 4 FCN layers. It has 875,592 parameters with an estimated parameter size of 3.1 MB.
+A large number of parameters ~60% are
 taken up by the last CNN (293160) and the first FCN (232957) layer.
-The accuracy achieved for each of the CIFAR-10 classes is shown
+The accuracy[^acc] achieved for each of the CIFAR-10 classes is shown
 below.[^1]
 
 | Class | Accuracy (%) |
@@ -49,12 +58,25 @@ below.[^1]
 The validation loss (vloss) is 0.541896045207977.
 
 CIFAR-10 is extremely challenging to improve accuracy on. The classes 'cat' and 'dog' seemed to cause the most problems.
-All the models achieving >90% accuracy seemed to use significantly much larger number of parameters and featured skip
-connections.
-Since I am just experimenting, I tried to have acceptable vloss while minimizing the number of parameters as much as
-possible.
+All the models achieving > 90% accuracy seemed to use significantly much larger number of parameters and featured skip
+connections. The images being small and blurry definitely hurts the performance of the classifier.
 
-A few highlights from my experimentation.
+The experimentation was done mostly on the CNN side of things, with kernel sizes, number of feature extracted (channels)
+and how
+much downscaling needs to be done.
+
+Kernel size = $3 \times 3$.  
+Final the image is downsampled to $16 \times$.  
+CNN channel upscale ratio = 1.3548533596918833  
+CNN Layers = 6,  
+downsampled_sizes = `[20, 13, 8, 5, 3, 2]`  
+channels = `[46, 62, 84, 114, 155, 210]`  
+FCN layers = `[840, 277, 92, 30, 10]`
+
+MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_
+-8491173734139600649_1\checkpoint_000009\model_checkpoint.pth
+
+### Experimental highlights
 
 1) Batchnorm works ! There is some disagreement in the ML community whether to put them before the activations or after
    the activations. I mean it works really well, the validation error just got sliced to half when I removed the bias of
@@ -73,12 +95,13 @@ A few highlights from my experimentation.
    minimum number of parameters. So I roughly used $\text{efficiency} =\frac{1}{\text{vloss} \times \text{parameters}}$
    as working principle and redid the model tuning tighter hyperparameter bounds multiple times.
 
-Annoyances:
+### Annoyances encountered
 
 1) Ray tune has a bug in `tune.quniform` where it completely ignores the quantization if the quantization value is 1.
    Wasted too much valuable man-hours hunting down why some of the training is erroring out.
 2) The model must be compiled before training or the training will be very slow. However, compiled pytorch model not
-   saveable (or picklable) ! Nowhere in the `torch.compile` documentation tells us that. Anyway I found a workaround.
+   saveable (or picklable) ! Nowhere in the `torch.compile` documentation tells us that. Anyway I found a (
+   workaround)[].
 3) If ray tune is run on a single computer with multiple child processes launched, then the `torch.compile` might have a
    conflict when generating compiled code. So expect an error the first time.
 4) Optuna seems to have issues resuming from an existing tuning experiment which got terminated, preferring to start a
@@ -88,9 +111,23 @@ Annoyances:
 
 ---
 
+## Image Encoder and Decoder
+
+The current intention is to run the
+
+
+
+
+
+
+
+---
+
+## Image generation
+
 This started out as a personal project image generation and has evolved (devolved ?) to something else.
 Inspired by image generation systems like Stable Diffusion and Flux, an attempt was made to create a VAE
-so that one can generate multiple samples as long as the $\sigma$ and $\mu$
+so that one can generate multiple samples as long as the $\sigma$ and $\mu$.
 
 To fully realize the project one needs
 This is very hard to explain but let us assume that there are 2 classes $\rightarrow$ [cat, tree]
@@ -104,26 +141,42 @@ This is very hard to explain but let us assume that there are 2 classes $\righta
        generate $\sigma$ and $\mu$.
     2) a text encoder to generate the $\sigma$ and $\mu$.
 3) Looking through existing literature it is obvious that the generated images from VAEs are blurry which somehow
-   escaped my attention during my first reading. This can confuse the classifier. There are VQ-VAEs and Normalizing
-   Flows (NF) but the design of NF is very different from VAEs in general.
-4) Maybe using $N(0,1)$ as a prior is not a good idea, perhaps using a power law distribution is better. Not sure how to
-   do KL-Divergence of power law though and then minimizing it.
+   escaped my attention during my first reading.
+   1) This is **extremely disappointing**. I am not interested in fine-tuning and spending time on a model only get bad
+      images. I
+      just stopped here and started doing thinking of doing something else.
+   2) Blurry images can confuse the classifier. This also means that I need to spend a lot of time making a good
+      classifier.
+   3) Maybe using $N(0,1)$ as a prior is not a good idea, perhaps using a power law distribution is better. Not sure how
+      to
+      do KL-Divergence of power law though.
+4) I know that there are VQ-VAEs and Normalizing Flows (NF) but the design of NF is very different from VAEs in general.
 
-If I am using normalized flows maybe we can have some model like the one below where Jacobian is generated using the
-text encoder and instead of operating directly on the image, operates on smaller dimensional $z$
+If I am using normalized flows maybe one can have some model like the one below where the Jacobian $J$ is generated
+using the text encoder and instead of operating directly on the image, operates on smaller dimensional $z$
 
 ```math 
-x \rightarrow ImageEncoder \rightarrow z  
+x \rightarrow ImageEncoder \rightarrow z 
+```
+
+```math  
 t \rightarrow TextEncoder \rightarrow J  
+```
+
+```math  
 z \rightarrow J \rightarrow z_g  
+```
+
+```math  
 z_g \rightarrow ImageDecoder \rightarrow x_g  
 ```
 
+For normal image generation in a commercial use one can use a Transformer (Google's T5 and ViT-L) from Hugging
+Face and a model like Stable Diffusion (or Flux depending on license) and generate images as required. One can also
+train a LORA or a DORA to modify the inference of the underlying UNet
+and get results.
 
-
-Anyway I think I need a classifier model and an image encoder and decoder model.
+Another solution will be to ComfyUI which I use personally.
 
 [^1]: Probably F1 is a better indication. Just using accuracy as everyone else seems to be using it.
-
-
-
+[^acc]: Apparently accuracy is not that [important](https://www.youtube.com/watch?v=-hOytdI3pzU).
