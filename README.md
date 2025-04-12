@@ -124,12 +124,11 @@ The current intention is to run the
 
 ## Image generation
 
-This started out as a personal project image generation and has evolved (devolved ?) to something else.
+This repo started out as a personal project image generation and has evolved (devolved ?) to something else.
 Inspired by image generation systems like Stable Diffusion and Flux, an attempt was made to create a VAE
 so that one can generate multiple samples as long as the $\sigma$ and $\mu$.
 
-To fully realize the project one needs
-This is very hard to explain but let us assume that there are 2 classes $\rightarrow$ [cat, tree]
+Obviously I gave up on this project, since I faced too many difficulties. Let me explain with the help of 2 classes $\rightarrow$ [cat, tree]
 
 1) One can use the image of the class 'cat' to generate $\sigma$ and $\mu$ to generate pictures of a cat. However,
    during evaluation one needs a classifier to test if the generated sample is that of a cat. This also means that a
@@ -169,13 +168,14 @@ z \rightarrow J \rightarrow z_g
 ```math  
 z_g \rightarrow ImageDecoder \rightarrow x_g  
 ```
+### Some additional thoughts
 
-For normal image generation in a commercial use one can use a Transformer (Google's T5 and ViT-L) from Hugging
+For normal image generation in a commercial environment use one can use a Transformer (Google's T5 and ViT-L) from Hugging
 Face and a model like Stable Diffusion (or Flux depending on license) and generate images as required. One can also
 train a LORA or a DORA to modify the inference of the underlying UNet
 and get results.
 
-Another solution will be to ComfyUI which I use personally.
+Another solution will be to use ComfyUI which I use personally.
 
-[^1]: Probably F1 is a better indication. Just using accuracy as everyone else seems to be using it.
+[^1]: Probably F1 scores is a better indication. Just using accuracy as everyone else seems to be using it.
 [^acc]: Apparently accuracy is not that [important](https://www.youtube.com/watch?v=-hOytdI3pzU).
