@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import List
 
 import matplotlib.pyplot as plt
@@ -8,7 +9,7 @@ from torchvision import transforms
 from torchvision.io import ImageReadMode, decode_image, write_jpeg
 from torchvision.transforms.v2.functional import InterpolationMode, crop_image, normalize, resize_image, rotate
 
-from src.image_encoder_decoder.prepare_data import PrepareData
+from src.image_encoder_decoder.prepare_data import PrepareData, read_norm_and_getdiffs
 from src.utils.common_utils import AppLog
 
 below = 0.01
@@ -185,10 +186,21 @@ def just_dosomething():
 	# img_diff = crop_image(img_diff, top, left,h2,w2)
 	img_diff = diff
 	print(f'top = {top}, left = {left}, h = {h2}, w = {w2} , top+h2 = {top + h2}, left+w2 = {left + w2}')
+	max_2, max_4, max_value, result = false_colour(img_diff)
+	# med_v2 = med_value / 2
+	print(f'Max = {max_value}, Max2 = {max_2}, Max4 = {max_4}')
+	ones = torch.ones_like(img_diff)
+	# result = torch.where(img_diff < med_v2, torch.concat([zero_img, zero_img, img_diff / med_v2], dim=0),
+	# 			torch.where(img_diff < med_value, torch.concat([(img_diff - med_v2)/(med_value-med_v2),zero_img, ones], dim=0 ),
+	# 						torch.concat([ones,(img_diff - med_value)/(max_value - med_value), zero_img], dim=0)))
+	result = result * 255
+	write_jpeg(result.to(dtype=torch.uint8).cpu(), "out/face_diff.jpg")
+
+
+def false_colour(img_diff):
 	max_value = img_diff.max()
 	mean_v = img_diff.mean()
-	# p_c = 1/mean_v - 2
-	# img_diff = max_value * (1 + p_c) * img_diff / (1 + p_c * img_diff)
+
 	max_2 = max_value / 2
 	max_4 = max_value / 4
 	max_34 = max_value * (3 / 4)
@@ -202,20 +214,13 @@ def just_dosomething():
 	red_blue_concat = torch.cat((red_img, zero_img, bl_img), dim=0)
 	yellow_concat = torch.cat((yl_img, yl_img, zero_img), dim=0)
 	result = torch.clamp(red_blue_concat + yellow_concat, 0, 1)  # red_blue_concat + yellow_concat
-	# med_v2 = med_value / 2
-	print(f'Max = {max_value}, Max2 = {max_2}, Max4 = {max_4}')
-	ones = torch.ones_like(img_diff)
-	# result = torch.where(img_diff < med_v2, torch.concat([zero_img, zero_img, img_diff / med_v2], dim=0),
-	# 			torch.where(img_diff < med_value, torch.concat([(img_diff - med_v2)/(med_value-med_v2),zero_img, ones], dim=0 ),
-	# 						torch.concat([ones,(img_diff - med_value)/(max_value - med_value), zero_img], dim=0)))
-	result = result * 255
-	write_jpeg(result.to(dtype=torch.uint8).cpu(), "out/face_diff.jpg")
+	return max_2, max_4, max_value, result
 
 
 def test_prepdata():
 	global h, w
 	prepareData = PrepareData()
-	diff_h, diff_w, h, prepared_image, w = prepareData.read_norm_and_getdiffs('data/reddit_face.jpg')
+	diff_h, diff_w, h, prepared_image, w = read_norm_and_getdiffs('data/reddit_face.jpg')
 	tot_diff = torch.pow(torch.pow(diff_h, 2) + torch.pow(diff_w, 2), 0.5)
 
 	diff_h_min = diff_h.amin(dim=[1, 2])
@@ -230,17 +235,30 @@ def test_prepdata():
 	AppLog.info(f'diffw is {diff_w_min} and std is {diff_w_std}')
 	AppLog.info(f'imgmin is {imgmin} and std is {imgstd}')
 	unnormal_img = normalize(prepared_image, imgmin.tolist(), (imgstd / 255.0).tolist())
-	unnormal_diffw = diff_h_norm  ##normalize(diff_w_norm, -1, 1/127.5)
-	unnormal_diffh = diff_w_norm  ## normalize(diff_h_norm, -1, 1/127.5)
+	unnormal_diffh = diff_h_norm  ##normalize(diff_w_norm, -1, 1/127.5)
+	unnormal_diffw = diff_w_norm  ## normalize(diff_h_norm, -1, 1/127.5)
 	write_jpeg(unnormal_img.to(dtype=torch.uint8), "out/unnormal_img.jpg")
 	write_jpeg(unnormal_diffw.to(dtype=torch.uint8), "out/unnormal_diffw.jpg")
 	write_jpeg(unnormal_diffh.to(dtype=torch.uint8), "out/unnormal_diffh.jpg")
 	AppLog.shut_down()
 
 
-if __name__ == '__main__':
+def check_slice_dice():
+	this_path = Path.cwd()
+	AppLog.info('Current working directory: {}'.format(this_path))
+	in_path = this_path / 'data'
+	out_path = this_path / 'out'
+	torch.cuda.device(0)
 
-	test_prepdata()
+	prepareData = PrepareData(in_path, out_path)
+	prepareData.prepare_images()
+	AppLog.shut_down()
+
+
+if __name__ == '__main__':
+	check_slice_dice()
+
+# test_prepdata()
 
 # just_dosomething()
 
