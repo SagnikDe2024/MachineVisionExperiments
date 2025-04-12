@@ -38,6 +38,7 @@ With that in mind, the optimizer settled on the following parameters.
 The final model has 6 CNN layers and 4 FCN layers. It has 875,592 parameters with an estimated parameter size of 3.1 MB.
 A large number of parameters ~60% are
 taken up by the last CNN (293160) and the first FCN (232957) layer.
+
 The accuracy[^acc] achieved for each of the CIFAR-10 classes is shown
 below.[^1]
 
