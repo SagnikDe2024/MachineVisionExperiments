@@ -168,8 +168,9 @@ z \rightarrow J \rightarrow z_g
 ```math  
 z_g \rightarrow ImageDecoder \rightarrow x_g  
 ```
+### Some additional thoughts
 
-For normal image generation in a commercial use one can use a Transformer (Google's T5 and ViT-L) from Hugging
+For normal image generation in a commercial environment use one can use a Transformer (Google's T5 and ViT-L) from Hugging
 Face and a model like Stable Diffusion (or Flux depending on license) and generate images as required. One can also
 train a LORA or a DORA to modify the inference of the underlying UNet
 and get results.
