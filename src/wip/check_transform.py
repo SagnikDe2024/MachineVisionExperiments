@@ -5,9 +5,11 @@ import numpy as np
 import torch
 from torch.nn.functional import fractional_max_pool2d
 from torchvision import transforms
-from torchvision.io import ImageReadMode, decode_image, write_jpeg, write_png
-from torchvision.transforms.v2.functional import InterpolationMode, crop_image, resize_image, rotate
-from torchvision.utils import flow_to_image
+from torchvision.io import ImageReadMode, decode_image, write_jpeg
+from torchvision.transforms.v2.functional import InterpolationMode, crop_image, normalize, resize_image, rotate
+
+from src.image_encoder_decoder.prepare_data import PrepareData
+from src.utils.common_utils import AppLog
 
 below = 0.01
 
@@ -162,55 +164,46 @@ def use_frac_pool(t1, kernel, fraction, times: int):
 	return pooled_image
 
 
-if __name__ == '__main__':
-
-	transform = transforms.Compose([transforms.Normalize(127.5,127.5)])
+def just_dosomething():
+	global h, w
+	transform = transforms.Compose([transforms.Normalize(127.5, 127.5)])
 	img_raw = decode_image("data/reddit_face.jpg", mode=ImageReadMode.GRAY).to(dtype=torch.float32).cuda()
 	img = transform(img_raw)
-
 	img_45 = rotate(img, 45, interpolation=InterpolationMode.BILINEAR, expand=True)
 	img_135 = rotate(img, 135, interpolation=InterpolationMode.BILINEAR, expand=True)
 	img_225 = rotate(img, 225, interpolation=InterpolationMode.BILINEAR, expand=True)
 	img_315 = rotate(img, 315, interpolation=InterpolationMode.BILINEAR, expand=True)
-
 	(c, h, w) = img_45.shape
 	(c2, h2, w2) = img.shape
 	top, left = (h - h2) // 2, (w - w2) // 2
-	diff = find_multiscale_diff([img_45,img_135,img_225,img_315],8, (top,left,h2,w2),1.5,1.5)
-
+	diff = find_multiscale_diff([img_45, img_135, img_225, img_315], 8, (top, left, h2, w2), 1.5, 1.5)
 	# img_45_diff = rotate(torch.diff(img_45),-45, interpolation=InterpolationMode.BILINEAR, expand=False)
 	# img_135_diff = rotate(torch.diff(img_135),-135, interpolation=InterpolationMode.BILINEAR, expand=False)
 	# img_225_diff = rotate(torch.diff(img_225),-225, interpolation=InterpolationMode.BILINEAR, expand=False)
 	# img_315_diff = rotate(torch.diff(img_315),-315, interpolation=InterpolationMode.BILINEAR, expand=False)
-
-
-
 	# img_diff = torch.abs(img_45_diff) +torch.abs(img_135_diff) + torch.abs(img_225_diff) + torch.abs(img_315_diff)
 	# img_diff = crop_image(img_diff, top, left,h2,w2)
 	img_diff = diff
-
-	print(f'top = {top}, left = {left}, h = {h2}, w = {w2} , top+h2 = {top+h2}, left+w2 = {left+w2}')
+	print(f'top = {top}, left = {left}, h = {h2}, w = {w2} , top+h2 = {top + h2}, left+w2 = {left + w2}')
 	max_value = img_diff.max()
 	mean_v = img_diff.mean()
 	# p_c = 1/mean_v - 2
 	# img_diff = max_value * (1 + p_c) * img_diff / (1 + p_c * img_diff)
-	max_2 = max_value/2
-	max_4 = max_value/4
-	max_34 = max_value*(3/4)
+	max_2 = max_value / 2
+	max_4 = max_value / 4
+	max_34 = max_value * (3 / 4)
 	zero_img = torch.zeros_like(img_diff)
 	ones = torch.ones_like(img_diff)
-	bl_img = torch.where(img_diff <= max_2*ones, 4*(1-img_diff/max_2)*(img_diff/max_2), 0)
-	red_img = torch.where(torch.logical_and(max_4*ones < img_diff,  img_diff <= max_34*ones), 4 * (1 - (img_diff - max_4) / max_2) * ((img_diff - max_4) / max_2), 0)
-	yl_img = torch.where(img_diff <= max_value*ones, 4 * (1 - (img_diff - max_2) / max_2) * ((img_diff - max_2) / max_2), 0)
-	red_blue_concat = torch.cat((red_img,zero_img, bl_img), dim=0)
+	bl_img = torch.where(img_diff <= max_2 * ones, 4 * (1 - img_diff / max_2) * (img_diff / max_2), 0)
+	red_img = torch.where(torch.logical_and(max_4 * ones < img_diff, img_diff <= max_34 * ones),
+						  4 * (1 - (img_diff - max_4) / max_2) * ((img_diff - max_4) / max_2), 0)
+	yl_img = torch.where(img_diff <= max_value * ones,
+						 4 * (1 - (img_diff - max_2) / max_2) * ((img_diff - max_2) / max_2), 0)
+	red_blue_concat = torch.cat((red_img, zero_img, bl_img), dim=0)
 	yellow_concat = torch.cat((yl_img, yl_img, zero_img), dim=0)
-	result = torch.clamp(red_blue_concat + yellow_concat,0,1 )   #red_blue_concat + yellow_concat
-
-
+	result = torch.clamp(red_blue_concat + yellow_concat, 0, 1)  # red_blue_concat + yellow_concat
 	# med_v2 = med_value / 2
 	print(f'Max = {max_value}, Max2 = {max_2}, Max4 = {max_4}')
-
-
 	ones = torch.ones_like(img_diff)
 	# result = torch.where(img_diff < med_v2, torch.concat([zero_img, zero_img, img_diff / med_v2], dim=0),
 	# 			torch.where(img_diff < med_value, torch.concat([(img_diff - med_v2)/(med_value-med_v2),zero_img, ones], dim=0 ),
@@ -219,15 +212,39 @@ if __name__ == '__main__':
 	write_jpeg(result.to(dtype=torch.uint8).cpu(), "out/face_diff.jpg")
 
 
+def test_prepdata():
+	global h, w
+	prepareData = PrepareData()
+	diff_h, diff_w, h, prepared_image, w = prepareData.read_norm_and_getdiffs('data/reddit_face.jpg')
+	tot_diff = torch.pow(torch.pow(diff_h, 2) + torch.pow(diff_w, 2), 0.5)
+
+	diff_h_min = diff_h.amin(dim=[1, 2])
+	diff_h_std = diff_h.amax(dim=[1, 2]) - diff_h_min
+	diff_w_min = diff_w.amin(dim=[1, 2])
+	diff_w_std = diff_w.amax(dim=[1, 2]) - diff_w_min
+	imgmin = prepared_image.amin(dim=[1, 2])
+	imgstd = prepared_image.amax(dim=[1, 2]) - imgmin
+	diff_h_norm = normalize(diff_h, diff_h_min.tolist(), (diff_h_std / 255.0).tolist())
+	diff_w_norm = normalize(diff_w, diff_w_min.tolist(), (diff_w_std / 255.0).tolist())
+	AppLog.info(f'diffh is {diff_h_min} and std is {diff_h_std}')
+	AppLog.info(f'diffw is {diff_w_min} and std is {diff_w_std}')
+	AppLog.info(f'imgmin is {imgmin} and std is {imgstd}')
+	unnormal_img = normalize(prepared_image, imgmin.tolist(), (imgstd / 255.0).tolist())
+	unnormal_diffw = diff_h_norm  ##normalize(diff_w_norm, -1, 1/127.5)
+	unnormal_diffh = diff_w_norm  ## normalize(diff_h_norm, -1, 1/127.5)
+	write_jpeg(unnormal_img.to(dtype=torch.uint8), "out/unnormal_img.jpg")
+	write_jpeg(unnormal_diffw.to(dtype=torch.uint8), "out/unnormal_diffw.jpg")
+	write_jpeg(unnormal_diffh.to(dtype=torch.uint8), "out/unnormal_diffh.jpg")
+	AppLog.shut_down()
 
 
+if __name__ == '__main__':
 
+	test_prepdata()
 
+# just_dosomething()
 
-
-
-
-	# frac_pool = use_frac_pool(img, (2, 2), (2 / 3, 2 / 3), 10)
+# frac_pool = use_frac_pool(img, (2, 2), (2 / 3, 2 / 3), 10)
 	# # rotated_images = minimize_and_rotate(img, 6)
 	# trans_imgs = frac_pool
 	# for i, rotated_image in enumerate(trans_imgs):
