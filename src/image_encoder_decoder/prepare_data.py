@@ -5,10 +5,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from PIL.ImageShow import show
+from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader, Dataset
 from torchvision.io import decode_image
 from torchvision.transforms import InterpolationMode
-from torchvision.transforms.v2.functional import crop_image, normalize, rotate, to_dtype
+from torchvision.transforms.v2.functional import crop_image, normalize, rotate, to_dtype, to_pil_image
+from pandas_image_methods import PILMethods
+from torchvision.utils import make_grid
 
 from src.utils.common_utils import AppLog
 
@@ -36,7 +40,8 @@ class Dice(torch.nn.Module):
 		super().__init__()
 		self.size = size
 		self.seed = seed
-		self.rand_cuda = torch.Generator(device='cuda')
+		# self.rand_cuda = torch.Generator(device='cuda')
+		self.rand_cuda = torch.Generator()
 		if seed != 0:
 			self.rand_cuda.manual_seed(seed)
 
@@ -141,38 +146,68 @@ class PrepareData:
 		self.in_location = in_location
 		self.out_location = out_location
 		self.dataset = RawImageDataSet(in_location)
-		# self.dicing = Dice(128)
-		self.dicing = torch.compile(Dice(128), mode="max-autotune")
+		self.dicing = Dice(128)
+		# self.dicing = torch.compile(Dice(128), mode="max-autotune")
 
 	def prepare_images(self):
 		AppLog.info(f'There are {len(self.dataset)} images')
-		self.dicing.cuda()
+		# self.dicing.cuda()
 
 		data_loader = DataLoader(self.dataset)
 
 		for data in data_loader:
 			img_id, tensor_image = data
 			(n, c, h, w) = tensor_image.shape
-			tensor_image = tensor_image.cuda()
+			# tensor_image = tensor_image.cuda()
 			data = self.dicing.forward(tensor_image)
 			# AppLog.info(f'Diced images {diced_images}')
 			diced_images = data['slices']
-			diced_images = map(lambda y: (y[0].cpu(), y[1].cpu(), y[2].cpu(), y[3].cpu(), y[4].cpu()), diced_images)
-			for diced_image in diced_images:
-				top, left, img_slice, diff_h_slice, diff_w_slice = diced_image
-				np_img = torch.permute(img_slice, (1, 2, 0)).numpy()
-				np_hdiff = torch.permute(diff_h_slice, (1, 2, 0)).numpy()
-				np_wdiff = torch.permute(diff_w_slice, (1, 2, 0)).numpy()
+			tops, lefts , imgs, img_hs, img_ws = zip(*diced_images)
 
-			numpy_data = np.array(list(diced_images))
-			AppLog.info(f'The shape is {numpy_data.shape}')
+			# diced_images = map(lambda y: (y[0].cpu(), y[1].cpu(), y[2].cpu(), y[3].cpu(), y[4].cpu()), diced_images)
+			image_slices = {'top': list(tops),
+							'left': list(lefts),
+							'img': list(map(lambda x : to_pil_image(x,mode='RGB') ,imgs )),
+										'img_h': list(map(lambda x : to_pil_image(x, mode='RGB' ) ,img_hs)),
+							'img_w': list(map(lambda x : to_pil_image(x, mode='RGB' ) ,img_ws))}
+			# for diced_image in diced_images:
+			# 	top, left, img_slice, diff_h_slice, diff_w_slice = diced_image
+			# 	np_img = torch.permute(img_slice, (1, 2, 0)).numpy()
+			# 	np_hdiff = torch.permute(diff_h_slice, (1, 2, 0)).numpy()
+			# 	np_wdiff = torch.permute(diff_w_slice, (1, 2, 0)).numpy()
+			# 	image_slices['top'].append(top)
+			# 	image_slices['left'].append(left)
+			# 	image_slices['img'].append(np_img)
+			# 	image_slices['img_h'].append(np_hdiff)
+			# 	image_slices['img_w'].append(np_wdiff)
+			img_grid = make_grid(image_slices['img'],nrow=20)
+			img_grid_h = make_grid(image_slices['img_h'],nrow=20)
+			img_grid_w = make_grid(image_slices['img_w'],nrow=20)
+			# show(img_grid)
+			permuted = torch.permute(img_grid, (1, 2, 0))
+			permuted_h = torch.permute(img_grid_h, (1, 2, 0))
+			permuted_w = torch.permute(img_grid_w, (1, 2, 0))
+			perm_img = [permuted,permuted_h,permuted_w]
 
-			dataframe = pd.DataFrame(numpy_data)
-			column_names = ['top', 'left', 'pic', 'diff_h', 'diff_w']
-			dataframe.columns = column_names
-			dataframe['image_id'] = img_id
-			dataframe['height'] = h
+			for p in perm_img:
+				plt.imshow(p)
+				plt.show()
+
+
+			# numpy_data = np.array(list(diced_images))
+			# AppLog.info(f'The shape is {numpy_data.shape}')
+
+			dataframe = pd.DataFrame(image_slices)
+			# column_names = ['top', 'left', 'pic', 'diff_h', 'diff_w']
+			# dataframe.columns = column_names
+			# new_cols = {'image_id' : img_id, 'height' : h, 'width' : w}
 			dataframe['width'] = w
+			dataframe['height'] = h
+			#
+			dataframe['image_id'] = img_id.item()
+
+			# dataframe.assign(**new_cols)
+
 			AppLog.info(f'dataframe  = {dataframe}')
 			AppLog.info(f'dataframe shape = {dataframe.shape}')
 
