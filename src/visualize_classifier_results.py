@@ -8,7 +8,7 @@ from torchinfo import summary
 
 from src.classifier.classifier import Classifier
 from src.tune_classifier import load_cifar_dataset, prepare_classifier_params
-from src.utils.common_utils import AppLog
+from ml_common.common_utils import AppLog
 
 
 def show_images(img_b) -> None:

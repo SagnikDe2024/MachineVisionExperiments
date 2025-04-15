@@ -10,7 +10,7 @@ from torchvision.io import decode_image
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.v2.functional import crop_image, normalize, rotate, to_dtype, to_pil_image
 
-from src.utils.common_utils import AppLog
+from ml_common.common_utils import AppLog
 
 
 class RawImageDataSet(Dataset):

@@ -13,7 +13,7 @@ from torchvision.datasets import CIFAR10
 from torchvision.transforms import transforms
 
 from src.classifier.classifier import Classifier
-from src.utils.common_utils import AppLog
+from ml_common.common_utils import AppLog
 from src.wip.training import ExperimentModels
 
 
