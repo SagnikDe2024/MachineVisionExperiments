@@ -162,6 +162,7 @@ so that one can generate multiple samples as long as the $\sigma$ and $\mu$.
 Obviously I gave up on this project, since I faced too many difficulties. Let me explain with the help of 2
 classes $\rightarrow$ [cat, tree]
 
+
 1) One can use the image of the class 'cat' to generate $\sigma$ and $\mu$ to generate pictures of a cat. However,
    during evaluation one needs a classifier to test if the generated sample is that of a cat. This also means that a
    classifier needs to be designed first.
@@ -199,13 +200,15 @@ z \rightarrow J \rightarrow z_g
 ```math  
 z_g \rightarrow ImageDecoder \rightarrow x_g  
 ```
+### Some additional thoughts
+
 
 ### Some additional thoughts
 
 For normal image generation in a commercial environment use one can use a Transformer (Google's T5 and ViT-L) from
 HuggingFace and a model like Stable Diffusion (or Flux depending on license) and generate images as required. One can
-also
-train a LORA or a DORA to modify the inference of the underlying UNet and get results.
+also train a LORA or a DORA to modify the inference of the underlying UNet and get results.
+
 
 Another solution will be to use ComfyUI which I use personally.
 
