@@ -1,0 +1,15 @@
+2025-04-08 13:03:21,024 - INFO - [classifier.py:__init__] Classifier channel upscale ratio: 1.3548533596918833
+2025-04-08 13:03:21,024 - INFO - [classifier.py:__init__] Layers = 6, downsampled_sizes = [20, 13, 8, 5, 3, 2], channels = [3, 46, 62, 84, 114, 155, 210]
+2025-04-08 13:03:21,029 - INFO - [classifier.py:__init__] FCN layers: [840, 277, 92, 30, 10]
+2025-04-08 13:03:22,812 - INFO - [tune_classifier.py:load_cifar_dataset] 50000 training samples and 10000 validation samples
+2025-04-08 13:03:22,812 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Showing perf of C:\mywork\python\MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_-8491173734139600649_1\checkpoint_000009\model_checkpoint.pth
+2025-04-08 13:03:26,786 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: plane is 86.5 %
+2025-04-08 13:03:26,786 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: car   is 89.5 %
+2025-04-08 13:03:26,786 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: bird  is 74.9 %
+2025-04-08 13:03:26,786 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: cat   is 72.2 %
+2025-04-08 13:03:26,787 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: deer  is 84.3 %
+2025-04-08 13:03:26,787 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: dog   is 71.1 %
+2025-04-08 13:03:26,787 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: frog  is 84.2 %
+2025-04-08 13:03:26,787 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: horse is 82.8 %
+2025-04-08 13:03:26,787 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: ship  is 93.3 %
+2025-04-08 13:03:26,787 - INFO - [visualize_classifier_results.py:get_state_and_show_accuracy] Accuracy for class: truck is 87.5 %
