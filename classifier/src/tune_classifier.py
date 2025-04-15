@@ -14,7 +14,7 @@ from torchvision.transforms import transforms
 
 from classifier.src.classifier.classifier import Classifier
 from ml_common.common_utils import AppLog
-from src.wip.training import ExperimentModels
+from classifier.src.training import ExperimentModels
 
 
 @torch.compiler.disable(recursive=True)
