@@ -12,6 +12,7 @@ from matplotlib import pyplot as plt
 from torchvision.transforms.v2.functional import normalize
 
 
+# This is for logging applications
 class AppLog:
 	_instance: Optional['AppLog'] = None
 	_logger: Optional[logging.Logger] = None
@@ -136,3 +137,57 @@ def show_image(img_tensor):
 	num_image = torch.permute(normal, (1, 2, 0)).numpy()
 	plt.imshow(num_image)
 	plt.show()
+
+
+def convert_rgb_to_complex(image):
+	transform_matrix = torch.tensor([[0.299, 0.587, 0.114],
+									 [-0.168736, -0.331264, 0.5],
+									 [0.5, -0.418688, -0.081312]], dtype=torch.float32)
+	# Reshape the image to (N, C, H, W) if it's not already
+	if image.ndim == 3:
+		image = image.unsqueeze(0)
+	# Permute the image to (N, H, W, C)
+	image = image.permute(0, 2, 3, 1)
+	ycbcr_image = torch.trunc(torch.tensordot(image.to(dtype=torch.float32), transform_matrix, dims=([3], [1])))
+	# Permute the image to (C, N, H, W)
+	# ycbcr_image_ch_form = ycbcr_image.permute(3, 0, 1, 2)
+	luma_only = ycbcr_image[:, :, :, 0]
+	cb_cr_only = ycbcr_image[:, :, :, 1:]
+	complex_cb_cr = torch.view_as_complex(cb_cr_only.contiguous())
+	print(f'luma = {luma_only}')
+	print(f'cb_cr = {complex_cb_cr}')
+	hue_angle = complex_cb_cr.angle()
+	real = torch.trunc(luma_only * torch.cos(hue_angle))
+	imag = torch.trunc(luma_only * torch.sin(hue_angle))
+	complex_image = real + 1j * imag
+	return complex_image
+
+
+def convert_complex_to_rgb(image):
+	transform_matrix = torch.tensor([[0.299, 0.587, 0.114],
+									 [-0.168736, -0.331264, 0.5],
+									 [0.5, -0.418688, -0.081312]], dtype=torch.float32)
+	inverse_transform_matrix = torch.inverse(transform_matrix)
+	# Reshape the image to (N, H, W, C) if it's not already
+	if image.ndim == 3:
+		image = image.unsqueeze(0)
+	image_luma = image.abs()
+	print(f' luma_max: {image_luma.max()} , luma_min: {image_luma.min()} ')
+	image_hue_angle = image.angle()
+	cb = torch.cos(image_hue_angle) * (1 - image_luma / 255) * image_luma / (1.772 * 2)
+	cr = torch.sin(image_hue_angle) * (1 - image_luma / 255) * image_luma / (1.402 * 2)
+	print(f'cb_max = {cb.max()} , cb_min = {cb.min()} , cr = {cr.max()} , cr = {cr.min()}')
+
+	ycbcr_image = torch.cat((image_luma, cb, cr), dim=1)
+	# Permute to (N, H, W, C)
+	ycbcr_image = ycbcr_image.permute(0, 2, 3, 1)
+	rgb_image_raw = torch.tensordot(ycbcr_image, inverse_transform_matrix, dims=([3], [1]))
+
+	# Permute the image to (N,C,H,W)
+	rgb_image = rgb_image_raw.permute(0, 3, 1, 2)
+
+	print(f' r_max = {rgb_image[:, 0, :, :].max()} , r_min = {rgb_image[:, 0, :, :].min()} ')
+	print(f' g_max = {rgb_image[:, 1, :, :].max()} , g_min = {rgb_image[:, 1, :, :].min()} ')
+	print(f' b_max = {rgb_image[:, 2, :, :].max()} , b_min = {rgb_image[:, 2, :, :].min()} ')
+
+	return rgb_image
