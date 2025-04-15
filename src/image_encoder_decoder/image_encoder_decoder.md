@@ -1,35 +1,47 @@
+# Image encoder and decoder
+
+## Basic Idea
+
+### Kernel coverage
+
+Let's assume that the CNN layers are like the one below:
+
+Conv -> BatchNorm -> Activation -> MaxPool
+
+Let this layer down samples by the ratio $r$  and there are $n$ layers.
+So for kernel size $k$ we have coverage $k$ for itself. Counting from back to front for the encoder we have for the kernel $k$ to have coverage
+$k$. Let that be CNN layer 0. 
+Thus :
+
+$ C(0) = k $ 
+
+For any layer $m$ we end up with the recurrence relation $ C(m+1) = C(m) \times r + 2 \times k - 2 $.
 
 
-The amou
+Solving it we get   
 
-Let's assume that the there are 4 CNN layers and kernel size is 5.
-Then assuming that each layer is of type
-Conv -> BatchNorm -> Activation -> MaxPool(2,2)
+$$ C(m) = \frac{(2 - 2 \times k +  r^m (k \times r + k - 2) )}{r-1} $$
 
-Assuming down sampling by 2.
+For the simple case of $m = 3$ where it is down sampled 4 times (down sampling happens after CNN layer). Assuming down sampling by $r = 2$ 
+every layer we get the coverage for kernel size $k = 3$ as 52.  
+The total down sampling $d$ is related to $r$ by     
+$$ r^{m+1} = d \implies r = d^{\frac{1}{m+1}} $$  
+Then one can eliminate $r$ and from the coverage formula becomes   
 
-The kernel coverage of 4th CNN layer on itself is 5. 
-The kernel coverage of 3rd CNN layer is (5 * 2 - 1)+5 = 14.
-The kernel coverage of 2nd CNN layer is (14 * 2 - 1)+5 = 32.
-The kernel coverage of 1st CNN layer is (32 * 2 - 1) + 5 = 68.
+$$ C(m) = \frac{(2 - 2 \times k +  d^{m/(m+1)} (k \times d^{1/(m+1)} + k - 2) )}{d^{1/(m+1)}-1} $$  
+
+Now we put $C(m) = 128 $ 
 
 
 
-The kernel coverage from 1st layer is 5.
-The kernel coverage from 2nd layer is 5 * 2 = 10. 
-The kernel coverage from 3rd layer is 5 * 2^2 = 20.
-The kernel coverage from 1st layer is 5 * 2^3 = 40.
+Since the image is sliced into blocks the other information being fed into the 
+system is of type
 
-(5*2-1+5)*2-1
+1) Height and Width of the image.
+2) The cropping location top, left.
+3) A hash of the image.
 
-Let's consider a CNN based encoder. The encoder downsamples by the ratio $r$ every layer
- and there are $n$ layers.
-So for kernel size $k$ we have coverage 
-K for it self.
-$ C(0) = k $ and $ C(m+1) = C(m) \times r + 2 \times k - 2 $.
-Solving we get   
 
-$$ C(m) = \frac{(2 - 2 \times k +  r^m (k \times r + 2 \times k - 2) )}{r-1} $$
 
 
 
