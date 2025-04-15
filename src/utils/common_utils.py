@@ -7,6 +7,10 @@ from pathlib import Path
 from queue import Queue
 from typing import Optional
 
+import torch
+from matplotlib import pyplot as plt
+from torchvision.transforms.v2.functional import normalize
+
 
 class AppLog:
 	_instance: Optional['AppLog'] = None
@@ -121,3 +125,14 @@ class AppLog:
 		if cls._instance is None:
 			cls._instance = cls()
 		cls._instance._log('CRITICAL', message)
+
+
+def show_image(img_tensor):
+	(c, h, w) = img_tensor.shape
+	min_ch_val = torch.amin(img_tensor, dim=[1, 2])
+	max_ch_val = torch.amax(img_tensor, dim=[1, 2])
+	ch_range = max_ch_val - min_ch_val
+	normal = normalize(img_tensor, min_ch_val.tolist(), ch_range.tolist())
+	num_image = torch.permute(normal, (1, 2, 0)).numpy()
+	plt.imshow(num_image)
+	plt.show()
