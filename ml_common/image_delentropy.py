@@ -6,11 +6,6 @@ from torchvision.io import write_png
 from ml_common.common_utils import convert_complex_to_rgb
 
 
-class DiffuseForwardPass(object):
-	def __init__(self) -> None:
-		self.noise = 0.1
-
-
 def calculate_pdf(pic: torch.tensor):
 	print(f'shape: {pic.shape}')
 	x_shift_kernel = torch.tensor([[0, 0, 0], [-1, 1, 0], [0, 0, 0]], dtype=torch.half)
