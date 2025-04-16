@@ -1,8 +1,10 @@
 import torch
 from numpy import log2
 from torch import nn
+from torch.nn import ModuleDict
 from torch.nn.functional import interpolate
 from torchinfo import summary
+
 
 # from ml_common.common_utils import AppLog
 
@@ -20,8 +22,8 @@ def generate_separated_kernels(input_channel: int, output_channel: int, k_size: 
 	c_intermediate = int(round((c_in ** (1 - a) * c_out ** a), 0))
 	# AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
 	# if not (0 <= a <= 1):
-		# AppLog.warning(
-				# f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
+	# AppLog.warning(
+	# f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
 	padding = k // 2 if add_padding else 0
 
 	conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (1, k), padding=(0, padding), bias=bias, stride=(1, stride))
@@ -134,30 +136,46 @@ class DecoderLayer(nn.Module):
 	def __init__(self, input_channels, output_channels, kernel_ratios):
 		super().__init__()
 		total_ratios = sum(kernel_ratios)
-		conv_layers = []
-		self.upsampler = nn.UpsamplingBilinear2d(scale_factor=16**(1/5))
-		for i, out_r in enumerate(kernel_ratios):
+		mod_dic = ModuleDict()
+		out_channels = [int(round(output_channels * out_r / total_ratios, 0)) for out_r in kernel_ratios]
+		rest = sum(out_channels[1:]) if len(out_channels) > 1 else 0
+		out_channels[0] = output_channels - rest
+
+		for i, out_ch in enumerate(out_channels):
 			kernel_size = i * 2 + 3
-			output_channel = int(round(output_channels * out_r / total_ratios, 0))
+			output_channel = out_ch
 			if kernel_size == 3:
-				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=output_channel, kernel_size=kernel_size,padding=1)
-				conv_layers.append(conv_layer)
+				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=output_channel,
+									   kernel_size=kernel_size,
+									   padding=1, bias=False)
+				mod_dic[f'{kernel_size}'] = conv_layer
+
 				continue
 			conv_1, conv_2 = generate_separated_kernels(input_channels, output_channel, kernel_size, r=3 / kernel_size,
 														add_padding=True)
 			seq = nn.Sequential(conv_1, conv_2)
-			conv_layers.append(seq)
-		self.conv_layers = [*conv_layers]
+			mod_dic[f'{kernel_size}'] = seq
+
+		self.conv_layers = mod_dic
 		self.norm = nn.BatchNorm2d(output_channels)
+
+		self.h = 128
+		self.w = 128
+
+	def set_h_w(self, h, w):
+		self.h = h
+		self.w = w
 
 	def forward(self, x):
 
-		# upsampled = self.upsampler(x)
-		upsampled = interpolate(x,scale_factor=16**(1/5),mode='bilinear')
-		out_v = [l.forward(upsampled) for l in self.conv_layers ]
-		for r in out_v:
-			print(f' ou sh is {r.shape}')
-		concat_res = torch.cat(out_v, dim=1)
+		upsampled = interpolate(x, size=(self.h, self.w), mode='bicubic')
+
+		convs = []
+		for conv_layer in self.conv_layers.values():
+			conv = conv_layer.forward(upsampled)
+			convs.append(conv)
+
+		concat_res = torch.cat(convs, dim=1)
 
 		normed_res = self.norm(concat_res)
 
@@ -168,64 +186,64 @@ class Decoder(nn.Module):
 	def __init__(self, in_channels, out_channels) -> None:
 		super().__init__()
 
-
-		layers = 5
+		layers = 6
 		self.layers = layers
 
-		channel_r = (out_channels/in_channels)**(1/(layers-1))
-		channels = [ int(round(in_channels*channel_r**x,0)) for x in range(layers) ]
+		channel_r = (out_channels / in_channels) ** (1 / (layers - 1))
+		channels = [int(round(in_channels * channel_r ** x, 0)) for x in range(layers)]
 		channels = [*channels, 3]
-
-
 
 		# AppLog.info(
 		# 		f'Layers = {layers}, channels = {channels}')
 
-		kernel_channel_ratios = [1,3/5,3/7]
-		decoder_layers = []
-		activation_layers = []
+		kernel_channel_ratios = [1, 3 / 5, 3 / 7]
+
+		decoder_layers = ModuleDict()
+		activation_layers = ModuleDict()
 		for layer in range(layers - 1):
 			ch_in = channels[layer]
 			ch_out = channels[layer + 1]
 
-			dec_layer = DecoderLayer(ch_in,ch_out,kernel_channel_ratios)
-			decoder_layers.append(dec_layer)
-			activation_layers.append(nn.Mish())
-		last_layer = DecoderLayer(channels[-2],channels[-1],[1])
-		decoder_layers.append(last_layer)
-		activation_layers.append(nn.Tanh())
+			dec_layer = DecoderLayer(ch_in, ch_out, kernel_channel_ratios)
+			decoder_layers[f'{layer}'] = dec_layer
+			activation_layers[f'{layer}'] = nn.Mish()
+		last_layer = DecoderLayer(channels[-2], channels[-1], [1])
+		decoder_layers['last'] = last_layer
+		activation_layers['last'] = nn.Tanh()
 		self.decoder_layers = decoder_layers
 		self.activation_layers = activation_layers
-		# self.h = 128
-		# self.w = 128
 
-	# def set(self,h,w):
-	# 	self.h = h
-	# 	self.w = w
+		self.h = 128
+		self.w = 128
 
-	def forward(self, latent_z : torch.Tensor):
-		# _,_,z_h, z_w = latent_z.shape
-		# h_r = self.h/z_h
-		# w_r = self.w/z_w
-		# l = self.layers
-		# h_s = [ int(round(z_h*h_r**((r+1)/l),0)) for r in range(l)  ]
-		# w_s = [ int(round(z_w*w_r**((r+1)/l),0)) for r in range(l)  ]
-		# AppLog.info(f'hs = {h_s}')
-		# AppLog.info(f'ws = {w_s}')
+	def set(self, h, w):
+		self.h = h
+		self.w = w
+
+	def forward(self, latent_z: torch.Tensor):
+		_, _, z_h, z_w = latent_z.shape
+		h_r = self.h / z_h
+		w_r = self.w / z_w
+		l = self.layers
+		h_s = [int(round(z_h * h_r ** ((r + 1) / l), 0)) for r in range(l)]
+		w_s = [int(round(z_w * w_r ** ((r + 1) / l), 0)) for r in range(l)]
 
 		z_m = latent_z
-		for dec_l,act_l in zip(self.decoder_layers, self.activation_layers):
+		for dec_l, act_l, h, w in zip(self.decoder_layers.values(), self.activation_layers.values(), h_s, w_s):
+			dec_l.set_h_w(h, w)
 			z_m = dec_l.forward(z_m)
 			z_m = act_l.forward(z_m)
-
 
 		return z_m
 
 
 if __name__ == '__main__':
-	# dec = Decoder(in_channels=288, out_channels=48)
-	decl = DecoderLayer(64,32,[1,3/5,3/7])
-
-	# dec.set(250,256)
-	summary(decl,input_size=(1,64,16,16))
-	# AppLog.shut_down()
+	dec = Decoder(in_channels=288, out_channels=48)
+	# decl = DecoderLayer(64, 32, [1, 3 / 5, 3 / 7])
+	# for layer_name, params in decl.named_parameters():
+	# 	print(layer_name, params.shape)
+	dec.set(256, 256)
+	for layer_name, params in dec.named_parameters():
+		print(layer_name, params.shape)
+	summary(dec, input_size=(1, 288, 16, 16))
+# AppLog.shut_down()
