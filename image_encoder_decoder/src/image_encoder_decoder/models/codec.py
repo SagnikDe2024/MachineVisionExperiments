@@ -1,8 +1,10 @@
 import torch
 from numpy import log2
 from torch import nn
+from torch.nn.functional import interpolate
+from torchinfo import summary
 
-from ml_common.common_utils import AppLog
+# from ml_common.common_utils import AppLog
 
 
 def generate_separated_kernels(input_channel: int, output_channel: int, k_size: int, a: float = (1 / 2), r: float = 0.0,
@@ -16,10 +18,10 @@ def generate_separated_kernels(input_channel: int, output_channel: int, k_size: 
 		a = log2((t + 1) / (t * r * k)) / log2(1 / t)
 
 	c_intermediate = int(round((c_in ** (1 - a) * c_out ** a), 0))
-	AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
-	if not (0 <= a <= 1):
-		AppLog.warning(
-				f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
+	# AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
+	# if not (0 <= a <= 1):
+		# AppLog.warning(
+				# f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
 	padding = k // 2 if add_padding else 0
 
 	conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (1, k), padding=(0, padding), bias=bias, stride=(1, stride))
@@ -123,32 +125,107 @@ class Encoder(nn.Module):
 		return torch.concat([z_w, z_h], 1)
 
 
-class Decoder(nn.Module):
-	def __init__(self, channels=None, last_activation=nn.Tanh()) -> None:
-		super().__init__()
-		layers = 4
-		upscale_ratio = 2
-		AppLog.info(
-				f'Layers = {layers}, channels = {channels}')
+# def decoder_upscale_module(input_tensor, kernel_size):
+# 	upsample_add = kernel_size - 1
+#
+# 	interpolate(input_tensor,siz)
 
-		sequence = nn.Sequential()
-		for layer in range(layers):
+class DecoderLayer(nn.Module):
+	def __init__(self, input_channels, output_channels, kernel_ratios):
+		super().__init__()
+		total_ratios = sum(kernel_ratios)
+		conv_layers = []
+		self.upsampler = nn.UpsamplingBilinear2d(scale_factor=16**(1/5))
+		for i, out_r in enumerate(kernel_ratios):
+			kernel_size = i * 2 + 3
+			output_channel = int(round(output_channels * out_r / total_ratios, 0))
+			if kernel_size == 3:
+				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=output_channel, kernel_size=kernel_size,padding=1)
+				conv_layers.append(conv_layer)
+				continue
+			conv_1, conv_2 = generate_separated_kernels(input_channels, output_channel, kernel_size, r=3 / kernel_size,
+														add_padding=True)
+			seq = nn.Sequential(conv_1, conv_2)
+			conv_layers.append(seq)
+		self.conv_layers = [*conv_layers]
+		self.norm = nn.BatchNorm2d(output_channels)
+
+	def forward(self, x):
+
+		# upsampled = self.upsampler(x)
+		upsampled = interpolate(x,scale_factor=16**(1/5),mode='bilinear')
+		out_v = [l.forward(upsampled) for l in self.conv_layers ]
+		for r in out_v:
+			print(f' ou sh is {r.shape}')
+		concat_res = torch.cat(out_v, dim=1)
+
+		normed_res = self.norm(concat_res)
+
+		return normed_res
+
+
+class Decoder(nn.Module):
+	def __init__(self, in_channels, out_channels) -> None:
+		super().__init__()
+
+
+		layers = 5
+		self.layers = layers
+
+		channel_r = (out_channels/in_channels)**(1/(layers-1))
+		channels = [ int(round(in_channels*channel_r**x,0)) for x in range(layers) ]
+		channels = [*channels, 3]
+
+
+
+		# AppLog.info(
+		# 		f'Layers = {layers}, channels = {channels}')
+
+		kernel_channel_ratios = [1,3/5,3/7]
+		decoder_layers = []
+		activation_layers = []
+		for layer in range(layers - 1):
 			ch_in = channels[layer]
 			ch_out = channels[layer + 1]
 
-			upsample_layer = nn.Upsample(scale_factor=upscale_ratio, mode='bicubic')
-			sequence.append(upsample_layer)
-			conv_layer_1, conv_layer_2 = generate_separated_kernels(ch_in, ch_out, 5, r=10 / 25, add_padding=True)
-			sequence.append(conv_layer_1)
-			sequence.append(conv_layer_2)
-			sequence.append(nn.BatchNorm2d(ch_out))
-			if layer < layers - 1:
-				activation_layer = nn.Mish()
-				sequence.append(activation_layer)
-			else:
-				activation_layer = last_activation
-				sequence.append(activation_layer)
-		self.sequence = nn.Sequential(*sequence)
+			dec_layer = DecoderLayer(ch_in,ch_out,kernel_channel_ratios)
+			decoder_layers.append(dec_layer)
+			activation_layers.append(nn.Mish())
+		last_layer = DecoderLayer(channels[-2],channels[-1],[1])
+		decoder_layers.append(last_layer)
+		activation_layers.append(nn.Tanh())
+		self.decoder_layers = decoder_layers
+		self.activation_layers = activation_layers
+		# self.h = 128
+		# self.w = 128
 
-	def forward(self, latent_z):
-		return self.sequence.forward(latent_z)
+	# def set(self,h,w):
+	# 	self.h = h
+	# 	self.w = w
+
+	def forward(self, latent_z : torch.Tensor):
+		# _,_,z_h, z_w = latent_z.shape
+		# h_r = self.h/z_h
+		# w_r = self.w/z_w
+		# l = self.layers
+		# h_s = [ int(round(z_h*h_r**((r+1)/l),0)) for r in range(l)  ]
+		# w_s = [ int(round(z_w*w_r**((r+1)/l),0)) for r in range(l)  ]
+		# AppLog.info(f'hs = {h_s}')
+		# AppLog.info(f'ws = {w_s}')
+
+		z_m = latent_z
+		for dec_l,act_l in zip(self.decoder_layers, self.activation_layers):
+			z_m = dec_l.forward(z_m)
+			z_m = act_l.forward(z_m)
+
+
+		return z_m
+
+
+if __name__ == '__main__':
+	# dec = Decoder(in_channels=288, out_channels=48)
+	decl = DecoderLayer(64,32,[1,3/5,3/7])
+
+	# dec.set(250,256)
+	summary(decl,input_size=(1,64,16,16))
+	# AppLog.shut_down()
