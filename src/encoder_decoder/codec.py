@@ -2,7 +2,7 @@ import torch
 from numpy import log2
 from torch import nn
 
-from src.utils.common_utils import AppLog
+from src.common.common_utils import AppLog
 
 
 def generate_separated_kernels(input_channel: int, output_channel: int, k_size: int, a: float = (1 / 2), r: float = 0.0,
