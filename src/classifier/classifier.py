@@ -4,7 +4,7 @@ from typing import List
 from torch import nn
 from torchinfo import summary
 
-from ml_common.common_utils import AppLog
+from src.common.common_utils import AppLog
 
 
 # This will classify the CIFAR-10 model into the classes for now.

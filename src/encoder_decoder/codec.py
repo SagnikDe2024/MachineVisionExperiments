@@ -6,7 +6,7 @@ from torch.nn.functional import interpolate
 from torchinfo import summary
 
 
-# from ml_common.common_utils import AppLog
+from src.common.common_utils import AppLog
 
 
 def generate_separated_kernels(input_channel: int, output_channel: int, k_size: int, a: float = (1 / 2), r: float = 0.0,
@@ -20,10 +20,10 @@ def generate_separated_kernels(input_channel: int, output_channel: int, k_size: 
 		a = log2((t + 1) / (t * r * k)) / log2(1 / t)
 
 	c_intermediate = int(round((c_in ** (1 - a) * c_out ** a), 0))
-	# AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
-	# if not (0 <= a <= 1):
-	# AppLog.warning(
-	# f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
+	AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
+	if not (0 <= a <= 1):
+		AppLog.warning(
+				f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
 	padding = k // 2 if add_padding else 0
 
 	conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (1, k), padding=(0, padding), bias=bias, stride=(1, stride))

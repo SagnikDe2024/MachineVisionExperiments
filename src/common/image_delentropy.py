@@ -3,7 +3,7 @@ import torch
 from numpy import dtype, ndarray
 from torchvision.io import write_png
 
-from ml_common.common_utils import convert_complex_to_rgb
+from src.common.common_utils import convert_complex_to_rgb
 
 
 def calculate_pdf(pic: torch.tensor):
