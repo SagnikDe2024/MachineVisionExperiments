@@ -10,7 +10,7 @@ from torchvision.io import ImageReadMode, decode_image, write_jpeg
 from torchvision.transforms.v2.functional import InterpolationMode, crop_image, normalize, resize_image, rotate
 
 from image_encoder_decoder.src.image_encoder_decoder.prepare_data import PrepareData, normalize_and_getdiffs
-from ml_common.common_utils import AppLog
+from src.common.common_utils import AppLog
 
 below = 0.01
 

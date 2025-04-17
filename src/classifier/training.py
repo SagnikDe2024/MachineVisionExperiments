@@ -7,7 +7,7 @@ from ray.tune import Checkpoint
 from torch import nn
 from torchinfo import summary
 
-from ml_common.common_utils import AppLog
+from src.common.common_utils import AppLog
 
 
 class TrainModel:
