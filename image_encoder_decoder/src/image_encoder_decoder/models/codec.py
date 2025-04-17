@@ -58,6 +58,7 @@ class EncoderLayer(nn.Module):
 		self.conv_layers = mod_dic
 		self.norm = nn.BatchNorm2d(output_channels)
 		self.activation = nn.Mish()
+		self.pooling = nn.FractionalMaxPool2d(2,output_ratio=0.5**(1/7))
 
 
 
@@ -73,6 +74,7 @@ class EncoderLayer(nn.Module):
 		concat_res = torch.cat(convs, dim=1)
 
 		normed_res = self.norm(concat_res)
+
 
 		return normed_res
 
