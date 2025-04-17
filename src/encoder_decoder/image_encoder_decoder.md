@@ -41,10 +41,3 @@ system is of type
 2) The cropping location top, left.
 3) A hash of the image.
 
-
-
-
-
-
-
-
