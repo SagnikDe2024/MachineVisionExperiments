@@ -7,10 +7,9 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision.io import decode_image
-from torchvision.transforms import InterpolationMode
-from torchvision.transforms.v2.functional import crop_image, normalize, rotate, to_dtype, to_pil_image
+from torchvision.transforms.v2.functional import crop_image, normalize, to_dtype, to_pil_image
 
-from src.common.common_utils import AppLog
+from src.common.common_utils import AppLog, get_diffs
 
 
 class RawImageDataSet(Dataset):
@@ -48,8 +47,8 @@ class Dice(torch.nn.Module):
 		if random_slice:
 			top_lefts = self.random_cropping(h, w)
 		else:
-			h_slices = h // self.size
-			w_slices = w // self.size
+			h_slices: int = h // self.size
+			w_slices: int = w // self.size
 			rest_h = h - h_slices * self.size
 			rest_w = w - w_slices * self.size
 			last_h = torch.tensor([h - self.size], dtype=torch.int32) if rest_h > 0 else torch.empty(0,
@@ -110,21 +109,7 @@ def normalize_and_getdiffs(float_tensor_image):
 
 	prepared_image = normalize(float_tensor_image, 0.5, 0.5)
 
-	img_45 = rotate(prepared_image, 45, interpolation=InterpolationMode.BILINEAR, expand=True)
-	(_, h45, w45) = img_45.shape
-	(_, h, w) = prepared_image.shape
-	top, left = (h45 - h) // 2, (w45 - w) // 2
-	diff_45_w = torch.diff(img_45, dim=-1)
-	diff_45_h = torch.diff(img_45, dim=-2)
-
-	diff_rotback_w = rotate(diff_45_w, -45, interpolation=InterpolationMode.BILINEAR, expand=False)
-	diff_rotback_h = rotate(diff_45_h, -45, interpolation=InterpolationMode.BILINEAR, expand=False)
-	diff_rotback_w_cropped = crop_image(diff_rotback_w, top, left, h, w)
-
-	diff_rotback_h_cropped = crop_image(diff_rotback_h, top, left, h, w)
-
-	diff_w = diff_rotback_w_cropped - diff_rotback_h_cropped
-	diff_h = diff_rotback_w_cropped + diff_rotback_h_cropped
+	diff_h, diff_w = get_diffs(prepared_image)
 
 	return diff_h, diff_w, prepared_image
 
