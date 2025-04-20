@@ -1,35 +1,11 @@
 import torch
-from numpy import log2
 from torch import Tensor, nn
 from torch.nn import ModuleDict
 from torch.nn.functional import interpolate
 from torchinfo import summary
 
+from src.common.common_utils import Ratio, generate_separated_kernels
 
-from src.common.common_utils import AppLog
-
-
-def generate_separated_kernels(input_channel: int, output_channel: int, k_size: int, a: float = (1 / 2), r: float = 0.0,
-							   add_padding: bool = True, bias=False, stride: int = 1):
-	c_in = input_channel
-	c_out = output_channel
-	t = c_out / c_in
-	k = k_size
-
-	if 0 < r < 1 and t != 1:
-		a = log2((t + 1) / (t * r * k)) / log2(1 / t)
-
-	c_intermediate = int(round((c_in ** (1 - a) * c_out ** a), 0))
-	AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
-	if not (0 <= a <= 1):
-		AppLog.warning(
-				f'Inconsistency in intermediate features: {c_intermediate} ∉ [{c_in},{c_out}]')
-	padding = k // 2 if add_padding else 0
-
-	conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (1, k), padding=(0, padding), bias=bias, stride=(1, stride))
-	conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (k, 1), padding=(padding, 0), bias=bias, stride=(stride, 1))
-
-	return conv_layer_1, conv_layer_2
 
 class EncoderLayer(nn.Module):
 	def __init__(self, input_channels, output_channels, kernel_ratios):
@@ -50,8 +26,7 @@ class EncoderLayer(nn.Module):
 				mod_dic[f'{kernel_size}'] = conv_layer
 
 				continue
-			conv_1, conv_2 = generate_separated_kernels(input_channels, output_channel, kernel_size, r=3 / kernel_size,
-														add_padding=True)
+			conv_1, conv_2 = generate_separated_kernels(input_channels, output_channel, kernel_size, add_padding=True)
 			seq = nn.Sequential(conv_1, conv_2)
 			mod_dic[f'{kernel_size}'] = seq
 
@@ -87,8 +62,8 @@ class InputLayer(nn.Module):
 		self.layer_1_1 = nn.Conv2d(in_channels=in_channel, out_channels=out_channel, kernel_size=3, stride=2,
 								   padding=1,
 								   bias=False)
-		layer_1_2_conv1, layer_1_2_conv2 = generate_separated_kernels(in_channel, out_channel, k_size=5, stride=2,
-																	  r=9 / 25)
+		layer_1_2_conv1, layer_1_2_conv2 = generate_separated_kernels(in_channel, out_channel, 5, Ratio(9 / 25),
+																	  stride=2)
 		self.layer_1_2_conv1 = layer_1_2_conv1
 		self.layer_1_2_conv2 = layer_1_2_conv2
 		self.norm = nn.BatchNorm2d(out_channel * 2)
@@ -108,14 +83,14 @@ class InputLayer(nn.Module):
 class MiddleLayer(nn.Module):
 	def __init__(self, in_channel, out_channel):
 		super().__init__()
-		layer_1_1_conv1, layer_1_1_conv2 = generate_separated_kernels(in_channel, out_channel, k_size=3, stride=2,
-																	  r=2 / 3)
+		layer_1_1_conv1, layer_1_1_conv2 = generate_separated_kernels(in_channel, out_channel, 3, Ratio(2 / 3),
+																	  stride=2)
 		self.layer_1_1_conv1 = layer_1_1_conv1
 		self.layer_1_1_conv2 = layer_1_1_conv2
 		# self.layer_1_1 = nn.Conv2d(in_channels=in_channel, out_channels=out_channel, kernel_size=3, stride=2,
 		# padding=1,bias=False)
-		layer_1_2_conv1, layer_1_2_conv2 = generate_separated_kernels(in_channel, out_channel, k_size=5, stride=2,
-																	  r=9 / 25)
+		layer_1_2_conv1, layer_1_2_conv2 = generate_separated_kernels(in_channel, out_channel, 5, Ratio(9 / 25),
+																	  stride=2)
 		self.layer_1_2_conv1 = layer_1_2_conv1
 		self.layer_1_2_conv2 = layer_1_2_conv2
 		self.norm = nn.BatchNorm2d(out_channel * 2)
@@ -200,8 +175,8 @@ class DecoderLayer(nn.Module):
 				mod_dic[f'{kernel_size}'] = conv_layer
 
 				continue
-			conv_1, conv_2 = generate_separated_kernels(input_channels, output_channel, kernel_size, r=3 / kernel_size,
-														add_padding=True)
+			conv_1, conv_2 = generate_separated_kernels(input_channels, output_channel, kernel_size,
+														Ratio(3 / kernel_size), add_padding=True)
 			seq = nn.Sequential(conv_1, conv_2)
 			mod_dic[f'{kernel_size}'] = seq
 
