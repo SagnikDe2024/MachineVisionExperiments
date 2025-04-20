@@ -1,11 +1,10 @@
-from math import log2
 from typing import Any, Tuple
 
 import torch
 from torch import nn
 from torchinfo import summary
 
-from src.common.common_utils import CNNUtils
+from src.common.common_utils import CNNUtils, ParamA, Ratio, generate_separated_kernels
 
 """
 UNet for Image Segmentation with Parameter Reduction Techniques
@@ -96,7 +95,7 @@ def calculate_depth_from_image_dimensions(image_dimensions: Tuple[int, int]) -> 
 				print(f'Maximum parameters for {l} layers is {all_parameters}')
 				max_parameters = all_parameters
 				plausible_params.append((k, l, max_final_channels, all_parameters / (2 ** 20)))
-			# break
+	# break
 
 	return plausible_params
 
@@ -133,26 +132,26 @@ class DepthwiseSeparableConv(nn.Module):
 		return x
 
 
+def get_separated_conv_kernel(in_channels, out_channels, inter_ch, kernel_size=3, switch=False):
+	conv1, conv2 = generate_separated_kernels(in_channels, out_channels, kernel_size, inter_ch=inter_ch, switch=switch)
+	return nn.Sequential(conv1, conv2)
+
+
 class SegmentationUnet(nn.Module):
-	def __init__(self, channels, segments, width_multiplier=1.0, use_separable_conv=True):
+	def __init__(self, down_sample_channels, upsample_channels):
 		super().__init__()
-		# Apply width multiplier to reduce channels
-		if width_multiplier != 1.0:
-			channels = [3] + [max(8, int(ch * width_multiplier)) for ch in channels[1:]]
 
 		down_sample = nn.ModuleDict()
-		input_channels = channels[:-1]
-		output_channels = channels[1:]
-		total_layers = len(output_channels)
-
-		self.middle_activation = nn.Mish()
+		input_channels = down_sample_channels[:-1]
+		output_channels = down_sample_channels[1:]
+		total_layers = len(upsample_channels)
 
 		for i, ch in enumerate(zip(input_channels, output_channels)):
 			inp_ch, out_ch = ch
-			if use_separable_conv and i > 0:  # Use regular conv for first layer (from RGB)
-				conv = DepthwiseSeparableConv(inp_ch, out_ch, kernel_size=3, padding=1)
+			if i > 0:  # Use regular conv for first layer (from RGB)
+				conv = get_separated_conv_kernel(inp_ch, out_ch, inter_ch=ParamA(0), kernel_size=7, switch=False)
 			else:
-				conv = nn.Conv2d(inp_ch, out_ch, kernel_size=3, padding=1)
+				conv = nn.Conv2d(inp_ch, out_ch, kernel_size=5, padding=2)
 			norm = nn.GroupNorm(1, out_ch)
 			act = nn.Mish()
 			pool = nn.MaxPool2d(2)
@@ -160,94 +159,133 @@ class SegmentationUnet(nn.Module):
 			down_sample[f'pool_{i}'] = pool
 
 		up_sample = nn.ModuleDict()
-		up_sample_input_channels_raw = output_channels[::-1]
-		up_sample_output_channels = [*up_sample_input_channels_raw[1:], segments]
-
 		# Double the input channels for skip connections
-		up_sample_input_channels = list(map(lambda x: 2 * x, up_sample_input_channels_raw))
+		print(f'Up sample channels: {upsample_channels}')
 
-		print(f'Up sample input channels: {up_sample_input_channels}')
-		print(f'Up sample output channels: {up_sample_output_channels}')
+		upsample_channels_inp_unet = upsample_channels[:-1]
 
-		for i, (inp_ch, out_ch) in enumerate(zip(up_sample_input_channels, up_sample_output_channels)):
+		for i, (inp_ch, out_ch) in enumerate(upsample_channels_inp_unet):
 			up_pool = nn.Upsample(scale_factor=2, mode='bicubic', align_corners=False)
-			if use_separable_conv:
-				conv = DepthwiseSeparableConv(inp_ch, out_ch, kernel_size=3, padding=1)
-			else:
-				conv = nn.Conv2d(inp_ch, out_ch, kernel_size=3, padding=1)
+			conv = get_separated_conv_kernel(inp_ch, out_ch, inter_ch=Ratio(2 / 3), kernel_size=3, switch=True)
+
 			norm = nn.GroupNorm(1, out_ch)
 			depth = total_layers - i - 1
 			act = nn.Mish() if depth > 0 else nn.Softmax2d()
-			up_sample[f'up_pool_{depth}'] = up_pool
+
 			up_sample[f'conv_up_{depth}'] = nn.Sequential(conv, norm, act)
+			up_sample[f'up_pool_{depth}'] = up_pool
 
 		self.down_sample = down_sample
 		self.up_sample = up_sample
+
+		final_conv = get_separated_conv_kernel(upsample_channels[-1][0], upsample_channels[-1][1],
+											   inter_ch=Ratio(2 / 3), kernel_size=3, switch=True)
+		final_norm = nn.GroupNorm(1, upsample_channels[-1][-1])
+		final_act = nn.Softmax2d()
+		self.final_conv = nn.Sequential(final_conv, final_norm, final_act)
 
 	def forward(self, x):
 		downsampled = []
 		for k, layer in self.down_sample.items():
 			if 'conv_down' in k:
-				conved = layer(x)
+				conved = layer.forward(x)
 				downsampled.append(conved)
 				x = conved
 			else:
-				x = layer(x)
-				print(f'Downsampled shape: {x.shape}')
+				x = layer.forward(x)
 
-		x = self.middle_activation(x)
-		print(f'Middle shape: {x.shape}')
-		for k, layer in self.up_sample.items():
-			if 'up_pool' in k:
-				x = layer(x)
+		up_conv_i = 0
+
+		for m in self.up_sample.items():
+
+			k, layer = m
+			print(f'Upsample layer: {k} at index {up_conv_i}')
+			if 'conv_up' in k:
+				if up_conv_i == 0:
+					conved_up = layer.forward(x)
+				else:
+					skip_tensor = downsampled.pop()
+					conved_up = layer.forward(torch.cat([x, skip_tensor], dim=1))
+				up_conv_i += 1
+				x = conved_up
 			else:
-				x = layer(torch.cat([x, downsampled.pop()], dim=1))
-			print(f'Upsampled shape: {x.shape}')
+				x = layer.forward(x)
+
+		x = self.final_conv.forward(torch.cat([x, downsampled.pop()], dim=1))
+
 		return x
 
 
+def create_unet_layers(top_level_down_channels, bottom_level_down_channels, top_level_up_channels,
+					   segments, layers):
+	channel_ratio_down = (bottom_level_down_channels / top_level_down_channels) ** (1 / (layers - 1))
+	channels_down = [round(top_level_down_channels * channel_ratio_down ** l) for l in range(layers)]
+
+	channel_ratio_up = (bottom_level_down_channels / top_level_up_channels) ** (1 / layers)
+	channels_up = [round(top_level_up_channels * channel_ratio_up ** l) for l in range(layers + 1)]
+	channels_up_input_uplayers = list(map(lambda x: x[0] + x[1], zip(channels_down, channels_up[:-1])))
+	channels_up_input = [*channels_up_input_uplayers, channels_up[-1]]
+
+	channels_down = [3, *channels_down]
+	channels_up_output = [segments, *channels_up]
+	channels_up = list(zip(channels_up_input, channels_up_output))
+
+	return channels_down, channels_up
+
+
 if __name__ == '__main__':
-	h, w = 512, 1024
-	total_info = h * w
-	max_dim = max(h, w)
-	min_dim = min(h, w)
-	max_range = round(log2(min_dim))
-	layers = -1
-	for k in range(4, max_range):
-		cov = CNNUtils.calculate_coverage(3, k, 2)
-		layers = k
-		if cov >= min_dim:
-			break
-	print(f'Max layers = {layers}')
-	start_ch = 32
-	end_ch = 128
-	layers = (layers + 4) // 2
+	ch_d, ch_up = create_unet_layers(32, 192, 30, 5, 6)
+	print(ch_d)
+	print(ch_up)
 
-	channel_ratio = (end_ch / start_ch) ** (1 / layers)
-	channels = [round(start_ch * channel_ratio ** l / 12) * 12 for l in range(layers + 1)]
-	all_channels = [3, *channels]
+	down_sample_channels = ch_d
+	upsample_channels = ch_up[::-1]
 
-	# Example 1: Original UNet (baseline)
-	print("\n=== Original UNet (Baseline) ===")
-	seg_original = SegmentationUnet(all_channels, 5, width_multiplier=1.0, use_separable_conv=False)
-	summary(seg_original, input_size=(1, 3, 512, 1024))
+	unet = SegmentationUnet(down_sample_channels, upsample_channels)
+	# print(unet)
+	summary(unet, input_size=(1, 3, 512, 1024))
 
-	# Example 2: UNet with depthwise separable convolutions
-	print("\n=== UNet with Depthwise Separable Convolutions ===")
-	seg_separable = SegmentationUnet(all_channels, 5, width_multiplier=1.0, use_separable_conv=True)
-	summary(seg_separable, input_size=(1, 3, 512, 1024))
-
-	# Example 3: UNet with reduced width (0.5x channels)
-	print("\n=== UNet with Reduced Width (0.5x) ===")
-	seg_reduced_width = SegmentationUnet(all_channels, 5, width_multiplier=0.5, use_separable_conv=False)
-	summary(seg_reduced_width, input_size=(1, 3, 512, 1024))
-
-	# Example 4: UNet with both optimizations
-	print("\n=== UNet with Both Optimizations ===")
-	seg_optimized = SegmentationUnet(all_channels, 5, width_multiplier=0.5, use_separable_conv=True)
-	summary(seg_optimized, input_size=(1, 3, 512, 1024))
-
-	print(f'Max param acceptable = {total_info}')
+# h, w = 512, 1024
+# total_info = h * w
+# max_dim = max(h, w)
+# min_dim = min(h, w)
+# max_range = round(log2(min_dim))
+# layers = -1
+# for k in range(4, max_range):
+# 	cov = CNNUtils.calculate_coverage(3, k, 2)
+# 	layers = k
+# 	if cov >= min_dim:
+# 		break
+# print(f'Max layers = {layers}')
+# starting_channels_d = 32
+# end_ch = 128
+# layers = (layers + 4) // 2
+#
+# channel_ratio = (end_ch / starting_channels_d) ** (1 / layers)
+# channels = [round(starting_channels_d * channel_ratio ** l / 12) * 12 for l in range(layers + 1)]
+# all_channels = [3, *channels]
+#
+# # Example 1: Original UNet (baseline)
+# print("\n=== Original UNet (Baseline) ===")
+# seg_original = SegmentationUnet(all_channels, 5, width_multiplier=1.0, use_separable_conv=False)
+# summary(seg_original, input_size=(1, 3, 512, 1024))
+#
+# # Example 2: UNet with depthwise separable convolutions
+# print("\n=== UNet with Depthwise Separable Convolutions ===")
+# seg_separable = SegmentationUnet(all_channels, 5, width_multiplier=1.0, use_separable_conv=True)
+# summary(seg_separable, input_size=(1, 3, 512, 1024))
+#
+# # Example 3: UNet with reduced width (0.5x channels)
+# print("\n=== UNet with Reduced Width (0.5x) ===")
+# seg_reduced_width = SegmentationUnet(all_channels, 5, width_multiplier=0.5, use_separable_conv=False)
+# summary(seg_reduced_width, input_size=(1, 3, 512, 1024))
+#
+# # Example 4: UNet with both optimizations
+# print("\n=== UNet with Both Optimizations ===")
+# seg_optimized = SegmentationUnet(all_channels, 5, width_multiplier=0.5, use_separable_conv=True)
+# summary(seg_optimized, input_size=(1, 3, 512, 1024))
+#
+# print(f'Max param acceptable = {total_info}')
 
 # params = calculate_depth_from_image_dimensions((5120, 2160))
 # params = sorted(params, key=lambda x: (x[0],-x[2]))
