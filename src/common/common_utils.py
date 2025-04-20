@@ -2,6 +2,7 @@ import inspect
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from math import log2
 from pathlib import Path
@@ -10,7 +11,11 @@ from typing import Optional, Tuple
 
 import torch
 from matplotlib import pyplot as plt
-from torchvision.transforms.v2.functional import normalize
+from numpy import log2
+from torch import nn
+from torch.nn import Conv2d
+from torchvision.transforms import InterpolationMode
+from torchvision.transforms.v2.functional import crop_image, normalize, rotate
 
 
 # This is for logging applications
@@ -34,7 +39,7 @@ class AppLog:
 			log_que = Queue(maxsize=1024)
 			q_handle = QueueHandler(log_que)
 			file_dir = Path(__file__).parent.resolve()
-			logdir = file_dir.parent / 'log'
+			logdir = file_dir.parent.parent / 'log'
 			logfile = logdir / f'application_{pid}.log'
 			print('Logging to {}'.format(logfile))
 
@@ -241,3 +246,70 @@ class CNNUtils:
 				return sum([CNNUtils.calculate_train_params(in_ch, out_ch, k_sizes[0], k_sizes[1]) for in_ch, out_ch in
 							in_out_pairs_ksizes_ratio])
 		return None
+
+
+def get_diffs(prepared_image):
+	img_45 = rotate(prepared_image, 45, interpolation=InterpolationMode.BILINEAR, expand=True)
+	(_, h45, w45) = img_45.shape
+	(_, h, w) = prepared_image.shape
+	top, left = (h45 - h) // 2, (w45 - w) // 2
+	diff_45_w = torch.diff(img_45, dim=-1)
+	diff_45_h = torch.diff(img_45, dim=-2)
+	diff_rotback_w = rotate(diff_45_w, -45, interpolation=InterpolationMode.BILINEAR, expand=False)
+	diff_rotback_h = rotate(diff_45_h, -45, interpolation=InterpolationMode.BILINEAR, expand=False)
+	diff_rotback_w_cropped = crop_image(diff_rotback_w, top, left, h, w)
+	diff_rotback_h_cropped = crop_image(diff_rotback_h, top, left, h, w)
+	diff_w = diff_rotback_w_cropped - diff_rotback_h_cropped
+	diff_h = diff_rotback_w_cropped + diff_rotback_h_cropped
+	return diff_h, diff_w
+
+
+@dataclass
+class Ratio:
+	ratio: float
+
+
+@dataclass
+class ParamA:
+	param_a: float
+
+
+@dataclass
+class IntermediateChannel:
+	intermediate_channel: int
+
+
+InterChannelType = IntermediateChannel | ParamA | Ratio
+
+
+def generate_separated_kernels(input_channel: int, output_channel: int, k_size: int, inter_ch: InterChannelType,
+							   add_padding: bool = True, bias: bool = False, stride: int = 1, switch=True) -> tuple[
+	Conv2d, Conv2d]:
+	c_in = input_channel
+	c_out = output_channel
+	t = c_out / c_in
+	k = k_size
+
+	c_intermediate = min(c_in, c_out)
+
+	if inter_ch is not None:
+		match inter_ch:
+			case IntermediateChannel(intermediate_channel=int(ic)):
+				c_intermediate = ic
+			case ParamA(param_a=float(a)):
+				c_intermediate = round((c_in ** (1 - a) * c_out ** a))
+			case Ratio(ratio=float(r)):
+				a = log2((t + 1) / (t * r * k)) / log2(1 / t)
+				c_intermediate = round((c_in ** (1 - a) * c_out ** a))
+
+	AppLog.info(f'c_in={c_in}, c_intermediate={c_intermediate}, c_out={c_out}')
+
+	padding = k // 2 if add_padding else 0
+	if switch:
+		conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (k, 1), padding=(padding, 0), bias=bias, stride=(stride, 1))
+		conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (1, k), padding=(0, padding), bias=bias, stride=(1, stride))
+	else:
+		conv_layer_1 = nn.Conv2d(c_in, c_intermediate, (1, k), padding=(0, padding), bias=bias, stride=(1, stride))
+		conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (k, 1), padding=(padding, 0), bias=bias, stride=(stride, 1))
+
+	return conv_layer_1, conv_layer_2
