@@ -261,7 +261,7 @@ def get_diffs(prepared_image):
 	diff_rotback_h_cropped = crop_image(diff_rotback_h, top, left, h, w)
 	diff_w = diff_rotback_w_cropped - diff_rotback_h_cropped
 	diff_h = diff_rotback_w_cropped + diff_rotback_h_cropped
-	return diff_h, diff_w
+	return diff_h[:, 1:, 1:], diff_w[:, 1:, 1:]
 
 
 @dataclass
