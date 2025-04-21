@@ -141,7 +141,8 @@ def unsqueeze_image_group(image_group):
 	return image_batch
 
 
-if __name__ == '__main__':
+def the_main():
+
 	image = to_dtype(decode_image('data/reddit_face.jpg', mode='RGB'), dtype=torch.float32, scale=True)
 	[c, h, w] = image.shape
 	images_created = list(augment_a_single_image(image).values())
@@ -161,12 +162,10 @@ if __name__ == '__main__':
 		AppLog.info(f'Diff h size = {diff_h_tr.shape}')
 		AppLog.info(f'Diff w size = {diff_w_tr.shape}')
 		train_list.append((batch_images, diff_h_tr, diff_w_tr))
-
-	diff_h, diff_w = get_single_channel_max_diff(image)
 	unet = get_unet()
 	lr = 0.001
 	optimizer = torch.optim.Adam(unet.parameters(), lr=lr)
-	compiled_model = unet  #torch.compile(unet, mode="max-autotune")
+	compiled_model = unet  # torch.compile(unet, mode="max-autotune")
 	train = TrainModel(save_checkpoint_epoch=None, model=compiled_model, loss_fn=None, optimizer=optimizer,
 					   device=None,
 					   starting_epoch=0, ending_epoch=20)
@@ -175,6 +174,14 @@ if __name__ == '__main__':
 	diff_w_sq = torch.unsqueeze(diff_w, 0)
 	AppLog.info(f'Image shape = {image_sq.shape}, diff_h shape = {diff_h_sq.shape}, diff_w shape = {diff_w_sq.shape}')
 	model_params = train.train_and_evaluate(train_list, [(image_sq, diff_h_sq, diff_w_sq)])
-	segments = compiled_model.forward(torch.unsqueeze(image, 0))
-	segmented = torch.cat([segments, torch.zeros([1, 1, h, w])], dim=1).squeeze(0)
+	eval = compiled_model.forward(torch.unsqueeze(image, 0))
+	segments = torch.argmax(eval, dim=1)
+	one_hot_ver = torch.nn.functional.one_hot(segments, num_classes=eval.shape[1])
+	converted = torch.permute(one_hot_ver, (0, 3, 1, 2))
+
+	segmented = torch.cat([converted, torch.zeros([1, 1, h, w])], dim=1).squeeze(0)
 	save_image(segmented, 'out/reddit_face_segmented.jpg')
+
+
+if __name__ == '__main__':
+	the_main()
