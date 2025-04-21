@@ -147,6 +147,11 @@ if __name__ == '__main__':
 	images_created = list(augment_a_single_image(image).values())
 	grouped = groupby(images_created, lambda x: x[0].shape)
 	train_list = []
+	diff_h, diff_w = get_single_channel_max_diff(image)
+	save_diff = torch.cat([diff_h, diff_w, torch.zeros([ 1, h-1, w-1])], dim=0)
+	save_image(save_diff, 'out/reddit_face_diff.jpg')
+	# return
+
 	for key, group in grouped:
 		images_tr, diff_h_tr, diff_w_tr = zip(*group)
 		batch_images = unsqueeze_image_group(images_tr)
