@@ -57,8 +57,8 @@ class TrainModel:
 		for seg in range(c):
 			acquired_segment = segments[:, seg, :, :]
 			acquired_segment = acquired_segment.unsqueeze(1)
-			seg_diff_w = torch.diff(acquired_segment, dim=-1, prepend=torch.zeros(n, 1, h, 1))
-			seg_diff_h = torch.diff(acquired_segment, dim=-2, prepend=torch.zeros(n, 1, 1, w))
+			seg_diff_w = torch.diff(acquired_segment, dim=-1)[:,:,1:h,:]
+			seg_diff_h = torch.diff(acquired_segment, dim=-2)[:, :, :, 1:w]
 			seg_diff_h_list.append(seg_diff_h)
 			seg_diff_w_list.append(seg_diff_w)
 		all_loss = loss_fn_used(seg_diff_h_list[0], diff_h) + loss_fn_used(seg_diff_w_list[0], diff_w)
