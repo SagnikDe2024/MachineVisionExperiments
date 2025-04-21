@@ -95,6 +95,7 @@ class TrainModel:
 		while self.current_epoch < self.ending_epoch:
 
 			avg_loss = self.train(train_loader)
+			AppLog.info(f'Training loss = {avg_loss}')
 			avg_vloss = self.evaluate(validation_loader)
 
 			AppLog.info(f'Epoch {self.current_epoch + 1}: Training loss = {avg_loss}, Validation Loss = {avg_vloss}')
@@ -107,7 +108,7 @@ class TrainModel:
 						f'Early stopping at {self.current_epoch + 1} epochs as (validation loss = {avg_vloss})/(best '
 						f'validation loss = {self.best_vloss}) > {loss_best_threshold} ')
 				break
-			elif no_improvement > 9:
+			elif no_improvement > 4:
 				AppLog.warning(
 						f'Early stopping at {self.current_epoch + 1} epochs as validation loss = {avg_vloss} has '
 						f'shown '
@@ -160,13 +161,14 @@ if __name__ == '__main__':
 	unet = get_unet()
 	lr = 0.001
 	optimizer = torch.optim.Adam(unet.parameters(), lr=lr)
-	compiled_model = torch.compile(unet, mode="max-autotune")
+	compiled_model = unet  #torch.compile(unet, mode="max-autotune")
 	train = TrainModel(save_checkpoint_epoch=None, model=compiled_model, loss_fn=None, optimizer=optimizer,
 					   device=None,
 					   starting_epoch=0, ending_epoch=20)
 	image_sq = torch.unsqueeze(image, 0)
 	diff_h_sq = torch.unsqueeze(diff_h, 0)
 	diff_w_sq = torch.unsqueeze(diff_w, 0)
+	AppLog.info(f'Image shape = {image_sq.shape}, diff_h shape = {diff_h_sq.shape}, diff_w shape = {diff_w_sq.shape}')
 	model_params = train.train_and_evaluate(train_list, [(image_sq, diff_h_sq, diff_w_sq)])
 	segments = compiled_model.forward(torch.unsqueeze(image, 0))
 	segmented = torch.cat([segments, torch.zeros([1, 1, h, w])], dim=1).squeeze(0)
