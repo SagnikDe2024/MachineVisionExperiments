@@ -4,10 +4,11 @@ from typing import Any, Tuple
 import torch
 from torch import nn
 from torchinfo import summary
-from torchvision.transforms.functional import rotate
-from torchvision.transforms.v2.functional import resize_image
+from torchvision.transforms import InterpolationMode
+from torchvision.transforms.v2.functional import resize_image, rotate
 
-from src.common.common_utils import CNNUtils, IntermediateChannel, ParamA, Ratio, generate_separated_kernels, get_diffs
+from src.common.common_utils import CNNUtils, IntermediateChannel, ParamA, Ratio, generate_separated_kernels, \
+	get_diffs
 
 """
 UNet for Image Segmentation with Parameter Reduction Techniques
@@ -109,26 +110,27 @@ def get_single_channel_max_diff(image):
 	single_channel_diff_h = diff_h[max_diff_h]
 	max_diff_w = torch.argmax(torch.max(torch.abs(diff_w)), dim=0)
 	single_channel_diff_w = diff_w[max_diff_w]
-	return single_channel_diff_h, single_channel_diff_w
+	return torch.unsqueeze(single_channel_diff_h, 0), torch.unsqueeze(single_channel_diff_w, 0)
 
 
 def prepare_a_single_image(image, res_i):
 	image_dict = {}
 	for i in range(4):
 		angle = i * 90
-		img = rotate(image, angle)
+		img = rotate(image, angle=angle, interpolation=InterpolationMode.BILINEAR, expand=True)
+
 		diff_h, diff_w = get_single_channel_max_diff(img)
 		image_dict[f'{res_i}_r_{angle}'] = img, diff_h, diff_w
 	flipped = torch.flip(image, dims=[1])
 	for i in range(4):
 		angle = i * 90
-		img_f = rotate(flipped, angle)
+		img_f = rotate(flipped, angle, interpolation=InterpolationMode.BILINEAR, expand=True)
 		diff_h_f, diff_w_f = get_single_channel_max_diff(img_f)
 		image_dict[f'{res_i}_fr_{angle}'] = img_f, diff_h_f, diff_w_f
 	return image_dict
 
 
-def augment_a_single_image(image, times=20):
+def augment_a_single_image(image, times=5):
 	(c, h, w) = image.shape
 	min_dim = min(h, w)
 	max_dim = max(h, w)
@@ -187,7 +189,7 @@ def get_separated_conv_kernel(in_channels, out_channels, inter_ch, kernel_size=3
 class SegmentationUnet(nn.Module):
 	def __init__(self, down_sample_channels, upsample_channels):
 		super().__init__()
-
+		self.model_params = {'down_sample_channels': down_sample_channels, 'upsample_channels': upsample_channels}
 		down_sample = nn.ModuleDict()
 		input_channels = down_sample_channels[:-1]
 		output_channels = down_sample_channels[1:]
@@ -234,6 +236,7 @@ class SegmentationUnet(nn.Module):
 
 	def forward(self, x):
 		downsampled = []
+
 		for k, layer in self.down_sample.items():
 			if 'conv_down' in k:
 				conved = layer.forward(x)
@@ -247,7 +250,7 @@ class SegmentationUnet(nn.Module):
 		for m in self.up_sample.items():
 
 			k, layer = m
-			print(f'Upsample layer: {k} at index {up_conv_i}')
+
 			if 'conv_up' in k:
 				if up_conv_i == 0:
 					conved_up = layer.forward(x)
@@ -257,7 +260,8 @@ class SegmentationUnet(nn.Module):
 				up_conv_i += 1
 				x = conved_up
 			else:
-				x = layer.forward(x)
+				[_, _, h, w] = downsampled[-1].shape
+				x = nn.Upsample(size=(h, w), mode='bicubic', align_corners=False)(x)
 
 		x = self.final_conv.forward(torch.cat([x, downsampled.pop()], dim=1))
 
