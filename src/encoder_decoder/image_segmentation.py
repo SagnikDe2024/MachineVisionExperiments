@@ -1,10 +1,13 @@
+from math import log2
 from typing import Any, Tuple
 
 import torch
 from torch import nn
 from torchinfo import summary
+from torchvision.transforms.functional import rotate
+from torchvision.transforms.v2.functional import resize_image
 
-from src.common.common_utils import CNNUtils, ParamA, Ratio, generate_separated_kernels
+from src.common.common_utils import CNNUtils, IntermediateChannel, ParamA, Ratio, generate_separated_kernels, get_diffs
 
 """
 UNet for Image Segmentation with Parameter Reduction Techniques
@@ -100,6 +103,50 @@ def calculate_depth_from_image_dimensions(image_dimensions: Tuple[int, int]) -> 
 	return plausible_params
 
 
+def get_single_channel_max_diff(image):
+	diff_h, diff_w = get_diffs(image)
+	max_diff_h = torch.argmax(torch.max(torch.abs(diff_h)), dim=0)
+	single_channel_diff_h = diff_h[max_diff_h]
+	max_diff_w = torch.argmax(torch.max(torch.abs(diff_w)), dim=0)
+	single_channel_diff_w = diff_w[max_diff_w]
+	return single_channel_diff_h, single_channel_diff_w
+
+
+def prepare_a_single_image(image, res_i):
+	image_dict = {}
+	for i in range(4):
+		angle = i * 90
+		img = rotate(image, angle)
+		diff_h, diff_w = get_single_channel_max_diff(img)
+		image_dict[f'{res_i}_r_{angle}'] = img, diff_h, diff_w
+	flipped = torch.flip(image, dims=[1])
+	for i in range(4):
+		angle = i * 90
+		img_f = rotate(flipped, angle)
+		diff_h_f, diff_w_f = get_single_channel_max_diff(img_f)
+		image_dict[f'{res_i}_fr_{angle}'] = img_f, diff_h_f, diff_w_f
+	return image_dict
+
+
+def augment_a_single_image(image, times=20):
+	(c, h, w) = image.shape
+	min_dim = min(h, w)
+	max_dim = max(h, w)
+	lowend_ratio_log = log2(64 / min_dim)
+	upperend_ratio_log = log2(1024 / max_dim)
+	log_divs = (upperend_ratio_log - lowend_ratio_log) / times
+	prepared_images = {}
+	for log_index in range(times + 1):
+		log_ratio = log_divs * log_index + lowend_ratio_log
+		ratio = 2 ** log_ratio
+		new_h = round(h * ratio)
+		new_w = round(w * ratio)
+		resized = resize_image(image, [new_h, new_w], antialias=True)
+		image_dict = prepare_a_single_image(resized, log_index)
+		prepared_images.update(image_dict)
+	return prepared_images
+
+
 def get_channels_ratios(first_cnn_layer, max_final_channels, layers_required, kernel_size=3):
 	channel_ratio = (max_final_channels / first_cnn_layer) ** (1 / layers_required)
 	channels = [round(first_cnn_layer * channel_ratio ** x) for x in range(layers_required + 1)]
@@ -149,9 +196,9 @@ class SegmentationUnet(nn.Module):
 		for i, ch in enumerate(zip(input_channels, output_channels)):
 			inp_ch, out_ch = ch
 			if i > 0:  # Use regular conv for first layer (from RGB)
-				conv = get_separated_conv_kernel(inp_ch, out_ch, inter_ch=ParamA(0), kernel_size=7, switch=False)
+				conv = get_separated_conv_kernel(inp_ch, out_ch, inter_ch=ParamA(0), kernel_size=5, switch=False)
 			else:
-				conv = nn.Conv2d(inp_ch, out_ch, kernel_size=5, padding=2)
+				conv = nn.Conv2d(inp_ch, out_ch, kernel_size=3, padding=1, bias=False)
 			norm = nn.GroupNorm(1, out_ch)
 			act = nn.Mish()
 			pool = nn.MaxPool2d(2)
@@ -166,7 +213,8 @@ class SegmentationUnet(nn.Module):
 
 		for i, (inp_ch, out_ch) in enumerate(upsample_channels_inp_unet):
 			up_pool = nn.Upsample(scale_factor=2, mode='bicubic', align_corners=False)
-			conv = get_separated_conv_kernel(inp_ch, out_ch, inter_ch=Ratio(2 / 3), kernel_size=3, switch=True)
+			conv = get_separated_conv_kernel(inp_ch, out_ch, inter_ch=IntermediateChannel(intermediate_channel=out_ch),
+											 kernel_size=3, switch=True)
 
 			norm = nn.GroupNorm(1, out_ch)
 			depth = total_layers - i - 1
@@ -231,6 +279,14 @@ def create_unet_layers(top_level_down_channels, bottom_level_down_channels, top_
 	channels_up = list(zip(channels_up_input, channels_up_output))
 
 	return channels_down, channels_up
+
+
+def get_unet():
+	ch_d, ch_up = create_unet_layers(32, 192, 30, 2, 6)
+	down_sample_channels = ch_d
+	upsample_channels = ch_up[::-1]
+	unet = SegmentationUnet(down_sample_channels, upsample_channels)
+	return unet
 
 
 if __name__ == '__main__':
