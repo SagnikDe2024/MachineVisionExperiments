@@ -3,9 +3,10 @@ from typing import Any, Tuple
 
 import torch
 from torch import nn
+from torch.nn.functional import interpolate
 from torchinfo import summary
 from torchvision.transforms import InterpolationMode
-from torchvision.transforms.v2.functional import resize_image, rotate
+from torchvision.transforms.v2.functional import gaussian_noise, resize_image, rotate
 
 from src.common.common_utils import CNNUtils, IntermediateChannel, ParamA, Ratio, generate_separated_kernels, \
 	get_diffs
@@ -214,7 +215,6 @@ class SegmentationUnet(nn.Module):
 		upsample_channels_inp_unet = upsample_channels[:-1]
 
 		for i, (inp_ch, out_ch) in enumerate(upsample_channels_inp_unet):
-			up_pool = nn.Upsample(scale_factor=2, mode='bicubic', align_corners=False)
 			conv = get_separated_conv_kernel(inp_ch, out_ch, inter_ch=IntermediateChannel(intermediate_channel=out_ch),
 											 kernel_size=3, switch=True)
 
@@ -223,7 +223,6 @@ class SegmentationUnet(nn.Module):
 			act = nn.Mish() if depth > 0 else nn.Softmax2d()
 
 			up_sample[f'conv_up_{depth}'] = nn.Sequential(conv, norm, act)
-			up_sample[f'up_pool_{depth}'] = up_pool
 
 		self.down_sample = down_sample
 		self.up_sample = up_sample
@@ -248,20 +247,18 @@ class SegmentationUnet(nn.Module):
 		up_conv_i = 0
 
 		for m in self.up_sample.items():
-
 			k, layer = m
 
-			if 'conv_up' in k:
-				if up_conv_i == 0:
-					conved_up = layer.forward(x)
-				else:
-					skip_tensor = downsampled.pop()
-					conved_up = layer.forward(torch.cat([x, skip_tensor], dim=1))
-				up_conv_i += 1
-				x = conved_up
+			if up_conv_i == 0:
+				conved_up = layer.forward(x)
 			else:
-				[_, _, h, w] = downsampled[-1].shape
-				x = nn.Upsample(size=(h, w), mode='bicubic', align_corners=False)(x)
+				skip_tensor = downsampled.pop()
+				conved_up = layer.forward(torch.cat([x, skip_tensor], dim=1))
+				up_conv_i += 1
+			x = conved_up
+
+			[_, _, h, w] = downsampled[-1].shape
+			x = interpolate(x, size=(h, w), mode='bicubic', align_corners=False)
 
 		x = self.final_conv.forward(torch.cat([x, downsampled.pop()], dim=1))
 
