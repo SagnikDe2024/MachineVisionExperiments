@@ -150,6 +150,19 @@ def augment_a_single_image(image, times=5):
 	return prepared_images
 
 
+def augment_with_noise(image, times=32, max_size=1024):
+	(c, h, w) = image.shape
+	max_dim = max(h, w)
+	upperend_ratio = (max_size / max_dim)
+	rh, rw = round(h * upperend_ratio), round(w * upperend_ratio)
+	resized = resize_image(image, [rh, rw], antialias=True)
+	images_made = [resized]
+	for t in range(times):
+		noised = gaussian_noise(resized, 0.01)
+		images_made.append(noised)
+	return images_made
+
+
 def get_channels_ratios(first_cnn_layer, max_final_channels, layers_required, kernel_size=3):
 	channel_ratio = (max_final_channels / first_cnn_layer) ** (1 / layers_required)
 	channels = [round(first_cnn_layer * channel_ratio ** x) for x in range(layers_required + 1)]
