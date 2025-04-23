@@ -8,7 +8,7 @@ from torchvision.transforms.v2.functional import to_dtype
 from torchvision.utils import save_image
 
 from src.common.common_utils import AppLog
-from src.encoder_decoder.image_segmentation import augment_a_single_image, augment_with_noise, \
+from src.image_segmentation.image_segmentation import augment_a_single_image, augment_with_noise, \
 	get_single_channel_max_diff, get_unet
 
 
