@@ -14,8 +14,9 @@ from matplotlib import pyplot as plt
 from numpy import log2
 from torch import nn
 from torch.nn import Conv2d
+from torchvision.io import decode_image
 from torchvision.transforms import InterpolationMode
-from torchvision.transforms.v2.functional import crop_image, normalize, rotate
+from torchvision.transforms.v2.functional import crop_image, normalize, rotate, to_dtype
 
 
 # This is for logging applications
@@ -313,3 +314,7 @@ def generate_separated_kernels(input_channel: int, output_channel: int, k_size: 
 		conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (k, 1), padding=(padding, 0), bias=bias, stride=(stride, 1))
 
 	return conv_layer_1, conv_layer_2
+
+
+def acquire_image(image_path):
+	return to_dtype(decode_image(image_path, mode='RGB'), dtype=torch.float32, scale=True)
