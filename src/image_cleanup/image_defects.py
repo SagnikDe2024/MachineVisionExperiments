@@ -194,22 +194,7 @@ def add_coma(image: Tensor, strength: float = 0.2) -> Tensor:
 	return F.grid_sample(image, grid, mode='bilinear', padding_mode='reflection', align_corners=False)
 
 
-def add_posterization(image: Tensor, levels: int = 5) -> Tensor:
-	"""
-	Apply posterization effect by reducing color levels.
-
-	Args:
-		image: Input image as torch tensor
-		levels: Number of color levels (default: 5)
-
-	Returns:
-		Posterized image
-	"""
-	factor = (levels - 1) / 1.0
-	return torch.round(image * factor) / factor
-
-
-def add_jpeg_artifacts(image: Tensor, quality: int = 50) -> Tensor:
+def add_jpeg_artifacts(image: Tensor, quality: int = 90) -> Tensor:
 	"""
 	Simulate JPEG compression artifacts using DCT transform.
 
@@ -228,9 +213,14 @@ def add_jpeg_artifacts(image: Tensor, quality: int = 50) -> Tensor:
 
 	# Prepare quantization matrix
 	q = torch.tensor(
-			[[16, 11, 10, 16, 24, 40, 51, 61], [12, 12, 14, 19, 26, 58, 60, 55], [14, 13, 16, 24, 40, 57, 69, 56],
-					[14, 17, 22, 29, 51, 87, 80, 62], [18, 22, 37, 56, 68, 109, 103, 77],
-					[24, 35, 55, 64, 81, 104, 113, 92], [49, 64, 78, 87, 103, 121, 120, 101],
+			[
+					[16, 11, 10, 16, 24, 40, 51, 61],
+					[12, 12, 14, 19, 26, 58, 60, 55],
+					[14, 13, 16, 24, 40, 57, 69, 56],
+					[14, 17, 22, 29, 51, 87, 80, 62],
+					[18, 22, 37, 56, 68, 109, 103, 77],
+					[24, 35, 55, 64, 81, 104, 113, 92],
+					[49, 64, 78, 87, 103, 121, 120, 101],
 					[72, 92, 95, 98, 112, 100, 103, 99]], device=image.device).float()
 
 	# Scale quantization matrix based on quality
@@ -238,25 +228,25 @@ def add_jpeg_artifacts(image: Tensor, quality: int = 50) -> Tensor:
 	q = torch.clamp(q * scale, 1, 255)
 
 	# Process image in 8x8 blocks
-	# blocks = image.unfold(2, 8, 8).unfold(3, 8, 8)
-	blocks = image.contiguous().view(-1, 8, 8)
+	blocks = image.unfold(2, 8, 8).unfold(3, 8, 8)
+	blocks = blocks.contiguous().view(image.shape[0], image.shape[1], -1, 8, 8)
+	num_blocks = blocks.shape[2]
 
 	# Apply DCT using FFT
-	dct_blocks = torch.fft.fft2(torch.fft.fft2(blocks, dim=1), dim=2).real
+	dct_blocks = torch.fft.fft2(blocks, dim=(-2, -1)).real
 
 	# Quantize
 	quantized = torch.round(dct_blocks / q)
 	dequantized = quantized * q
 
 	# Inverse DCT using IFFT
-	idct_blocks = torch.fft.ifft2(torch.fft.ifft2(dequantized, dim=2), dim=1).real
-	print(
-		f'Size of blocks: {blocks.shape}, dct_blocks : {dct_blocks.shape}, idct_blocks : {idct_blocks.shape}, '
-		f'image : {image.shape}')
+	idct_blocks = torch.fft.ifft2(dequantized, dim=(-2, -1)).real
 
 	# Reshape back
+	h_blocks = (image.shape[2] + h_pad) // 8
+	w_blocks = (image.shape[3] + w_pad) // 8
 
-	output = idct_blocks.view(image.shape[0], image.shape[1], image.shape[2] // 8, 8, image.shape[3] // 8, 8)
+	output = idct_blocks.view(image.shape[0], image.shape[1], h_blocks, w_blocks, 8, 8)
 	output = output.permute(0, 1, 2, 4, 3, 5).contiguous()
 	output = output.view(image.shape)
 
