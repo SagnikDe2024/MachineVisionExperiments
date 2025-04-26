@@ -11,11 +11,13 @@ from typing import Optional, Tuple
 
 import torch
 from matplotlib import pyplot as plt
+from matplotlib.pyplot import imshow
 from numpy import log2
-from torch import nn
+from torch import Tensor, nn
 from torch.nn import Conv2d
+from torchvision.io import decode_image
 from torchvision.transforms import InterpolationMode
-from torchvision.transforms.v2.functional import crop_image, normalize, rotate
+from torchvision.transforms.v2.functional import crop_image, normalize, rotate, to_dtype
 
 
 # This is for logging applications
@@ -313,3 +315,35 @@ def generate_separated_kernels(input_channel: int, output_channel: int, k_size: 
 		conv_layer_2 = nn.Conv2d(c_intermediate, c_out, (k, 1), padding=(padding, 0), bias=bias, stride=(stride, 1))
 
 	return conv_layer_1, conv_layer_2
+
+
+def acquire_image(image_path):
+	return to_dtype(decode_image(image_path, mode='RGB'), dtype=torch.float32, scale=True)
+
+
+# Squashes a C,H,W tensor to 1,H,W tensor
+def squash_n_to_1(tensor: Tensor):
+	abs_val = torch.abs(tensor)
+	min_val = torch.amin(abs_val, dim=[-3, -2, -1])
+	max_val = torch.amax(abs_val, dim=[-3, -2, -1])
+	normed = torch.div((abs_val - min_val), (max_val - min_val))
+
+	ch_one = torch.ones_like(normed[:, 0, :, :])
+	numer = ch_one.clone()
+	for c in range(tensor.shape[-3]):
+		ch = normed[:, c, :, :]
+		numer = torch.mul(ch_one - ch, numer)
+	denom = torch.zeros_like(numer)
+	for c in range(tensor.shape[-3]):
+		ch = normed[:, c, :, :]
+		denom_obj = torch.div(numer, ch_one - ch)
+		denom = torch.add(denom, torch.mul(denom_obj, ch))
+	prepared_tensor = torch.div(numer, denom)
+	prepared_tensor[prepared_tensor != prepared_tensor] = 0
+
+	return prepared_tensor
+
+
+def visualize_tensor(tensor: Tensor):
+
+	imshow()

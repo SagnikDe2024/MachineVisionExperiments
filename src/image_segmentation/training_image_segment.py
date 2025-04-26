@@ -7,7 +7,7 @@ from torchvision.io import decode_image
 from torchvision.transforms.v2.functional import to_dtype
 from torchvision.utils import save_image
 
-from src.common.common_utils import AppLog
+from src.common.common_utils import AppLog, acquire_image
 from src.image_segmentation.image_segmentation import augment_a_single_image, augment_with_noise, \
 	get_single_channel_max_diff, get_unet
 
@@ -254,10 +254,6 @@ def evaluate_model():
 
 	segmented = torch.cat([eval, torch.zeros([1, h, w])], dim=0)
 	save_image(segmented, 'out/reddit_face_segmented.jpg')
-
-
-def acquire_image(image_path):
-	return to_dtype(decode_image(image_path, mode='RGB'), dtype=torch.float32, scale=True)
 
 
 def check_transformations(batch_size=32):
