@@ -27,13 +27,17 @@ class ImageCleanupModel(nn.Module):
 		self.decoder = nn.ModuleDict()
 
 		decoder_layers = len(decoder_channels) - 1
+		decoder_activation = nn.Mish()
+		decoder_activation_last = nn.Softplus()
 
 		for channel_index in range(decoder_layers):
 			input_channel = decoder_channels[channel_index]
 			output_channel = decoder_channels[channel_index + 1]
 			if channel_index == decoder_layers - 1:
-				encoder_layer = DecoderLayer(input_channel, output_channel, [(3, 1)])
+				decoder_layer = DecoderLayer(input_channel, output_channel, [(3, 1)])
 			else:
-				encoder_layer = EncoderLayer(input_channel, output_channel, [(3, 1), (5, 3 / 5)],
-											 downsample=downsample_ratio)
-			self.encoder.append(encoder_layer)
+				decoder_layer = DecoderLayer(input_channel, output_channel, [(3, 1), (5, 1)])
+
+			self.decoder[f'd_{channel_index}'] = decoder_layer
+
+

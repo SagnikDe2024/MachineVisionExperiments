@@ -149,7 +149,7 @@ class EncoderLayer(nn.Module):
 # 	interpolate(input_tensor,siz)
 
 class DecoderLayer(nn.Module):
-	def __init__(self, input_channels, output_channels, kernels_and_ratios):
+	def __init__(self, input_channels, output_channels, kernels_and_ratios, strength=None):
 		super().__init__()
 		kernels, kernel_ratios = zip(*kernels_and_ratios)
 		total_ratios = sum(kernel_ratios)
@@ -173,7 +173,7 @@ class DecoderLayer(nn.Module):
 			mod_dic[f'{kernel_size}'] = seq
 
 		self.conv_layers = mod_dic
-		self.norm = nn.BatchNorm2d(output_channels)
+		self.norm = nn.InstanceNorm2d(output_channels)
 
 		self.h = 128
 		self.w = 128
