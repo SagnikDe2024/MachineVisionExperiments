@@ -3,9 +3,10 @@ import logging
 import os
 import sys
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
+from math import log2
 from pathlib import Path
 from queue import Queue
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 from matplotlib import pyplot as plt
@@ -191,3 +192,52 @@ def convert_complex_to_rgb(image):
 	print(f' b_max = {rgb_image[:, 2, :, :].max()} , b_min = {rgb_image[:, 2, :, :].min()} ')
 
 	return rgb_image
+
+
+class CNNUtils:
+	@staticmethod
+	def calculate_coverage(k_size: int, cnn_layers: int, downsampling_factor: float):
+		k = k_size
+		m = cnn_layers - 1
+		r = downsampling_factor
+
+		coverage = (2 - 2 * k + r ** m * (r * k + k - 2)) / (r - 1)
+		return coverage
+
+	@staticmethod
+	def calculate_train_params(in_ch: int, out_ch: int, k_size: int, sep_param_ratio=1):
+		r = sep_param_ratio
+		t = out_ch / in_ch
+		k = k_size
+		if sep_param_ratio == 1:
+			return in_ch * out_ch * k_size ** 2
+		if t != 1:
+			a = log2((t + 1) / (t * r * k)) / log2(1 / t)
+			intermediate_channels = round(in_ch ** (1 - a) * out_ch ** a)
+			new_a = log2(intermediate_channels / in_ch) / log2(out_ch / in_ch)
+			min_frac = (t + 1) * t ** (-1) / k
+			max_frac = (t + 1) * t ** 0 / k
+			print(f'The intermediate channel = {intermediate_channels}, where a = {new_a:.2f}')
+			print(f'The min frac = {min_frac}, max frac = {max_frac} for {sep_param_ratio}')
+			return intermediate_channels * k * (in_ch + out_ch)
+		else:
+			print(f'The ratio should be {2 / k} if not already')
+			return in_ch * out_ch * k_size ** 2 * sep_param_ratio
+
+	@staticmethod
+	def calculate_total_cnn_params(k_sizes: list[int] | int | Tuple[int, float], channels: list[int]):
+		in_channels = channels[:-1]
+		out_channels = channels[1:]
+		match k_sizes:
+			case int(_):
+				in_out_pairs = zip(in_channels, out_channels)
+				return sum([CNNUtils.calculate_train_params(in_ch, out_ch, k_sizes) for in_ch, out_ch in in_out_pairs])
+			case list(_):
+				in_out_pairs_ksizes = zip(in_channels, out_channels, k_sizes)
+				return sum([CNNUtils.calculate_train_params(in_ch, out_ch, k_size) for in_ch, out_ch, k_size in
+							in_out_pairs_ksizes])
+			case tuple(_):
+				in_out_pairs_ksizes_ratio = zip(in_channels, out_channels)
+				return sum([CNNUtils.calculate_train_params(in_ch, out_ch, k_sizes[0], k_sizes[1]) for in_ch, out_ch in
+							in_out_pairs_ksizes_ratio])
+		return None
