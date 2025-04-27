@@ -17,8 +17,11 @@ Currently working on ~~3~~ 2 things
 
 ## Deep face and emotion
 
+
 This does not use any training, however, this is about using existing trained ML model to determine the bounding boxes
 of people's faces in pictures and then determine
+
+
 their emotion. For finding the bounding boxes yolo-v8 is used. For acquiring the emotional state of the face, DeepFace
 is being used.
 
@@ -39,6 +42,9 @@ Also, if there are too many faces, then yolo-v8 fails to provide bounding boxes 
 ![0fd62230f7684eba9ad51475791d0bbd.png](deepfaceAndEmotion/target/0fd62230f7684eba9ad51475791d0bbd.png)
 
 This is an older project. It needs to be cleaned up and some stuff is missing like accuracy and F1 scores.
+
+To check its use, see the server at  [https://github.com/SagnikDe2024/DeepFaceEmotion](DeepFaceServer)
+
 
 ## Classification
 
