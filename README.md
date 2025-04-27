@@ -3,13 +3,48 @@
 ## The repos
 
 This repository contains some experiments I am doing on images, different designs for machine vision, image compression
-etc. The contents of the repo will change as more data will be added as needed.
+etc. The contents of the repo will change as more stuff is added.
+
+The repository is unfortunately a mess as some of the work is done using pure python code (which I prefer) and some part
+of the work is done on Jupyter notebooks and some part is done in Google Colab (as I don't have a A100 lying around).
 
 Currently working on ~~3~~ 2 things
 
 1) [~~Image Generation.~~](#image-generation)
 2) [Classification](#classification)
-3) [Image Encoder and Decoder (WIP)](#image-encoder-and-decoder)
+3) [Deep face and emotion](#deep-face-and-emotion)
+4) [Image Encoder and Decoder (WIP)](#image-encoder-and-decoder)
+
+## Deep face and emotion
+
+
+This does not use any training, however, this is about using existing trained ML model to determine the bounding boxes
+of people's faces in pictures and then determine
+
+
+their emotion. For finding the bounding boxes yolo-v8 is used. For acquiring the emotional state of the face, DeepFace
+is being used.
+
+In general clear pictures produces good emotional results as shown below with high confidence level.
+
+![11_Meeting_Meeting_11_Meeting_Meeting_11_1.png](deepfaceAndEmotion/target/11_Meeting_Meeting_11_Meeting_Meeting_11_1.png)
+
+However, blurry images, obscured faces will cause the DeepFace algo to fail and sometimes provide wrong results.
+
+![11_Meeting_Meeting_11_Meeting_Meeting_11_18.png](deepfaceAndEmotion/target/11_Meeting_Meeting_11_Meeting_Meeting_11_18.png)
+
+In cases the yolo-v8 fails to find the proper bounding box. It creates too many bounding boxes for overlapping faces.
+
+![05333b2b99254bb98670bf10f98089d4.png](deepfaceAndEmotion/target/05333b2b99254bb98670bf10f98089d4.png)
+
+Also, if there are too many faces, then yolo-v8 fails to provide bounding boxes as required.
+
+![0fd62230f7684eba9ad51475791d0bbd.png](deepfaceAndEmotion/target/0fd62230f7684eba9ad51475791d0bbd.png)
+
+This is an older project. It needs to be cleaned up and some stuff is missing like accuracy and F1 scores.
+
+To check its use, see the server at  [https://github.com/SagnikDe2024/DeepFaceEmotion](DeepFaceServer)
+
 
 ## Classification
 
@@ -100,7 +135,9 @@ MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_
 1) Ray tune has a bug in `tune.quniform` where it completely ignores the quantization if the quantization value is 1.
    Wasted too much valuable man-hours hunting down why some of the training is erroring out.
 2) The model must be compiled before training or the training will be very slow. However, compiled pytorch model not
-   [saveable](https://github.com/pytorch/pytorch/issues/101107#issuecomment-1542688089)  (or picklable) ! Nowhere in the `torch.compile` documentation tells us that. Anyway I found a [workaround](https://clay-atlas.com/us/blog/2023/12/03/pytorch-compile-model-state-fict-orig-mod/).
+   [saveable](https://github.com/pytorch/pytorch/issues/101107#issuecomment-1542688089)  (or picklable) ! Nowhere in the
+   `torch.compile` documentation tells us that. Anyway I found
+   a [workaround](https://clay-atlas.com/us/blog/2023/12/03/pytorch-compile-model-state-fict-orig-mod/).
 3) If ray tune is run on a single computer with multiple child processes launched, then the `torch.compile` might have a
    conflict when generating compiled code. So expect an error the first time.
 4) Optuna seems to have issues resuming from an existing tuning experiment which got terminated, preferring to start a
@@ -128,7 +165,9 @@ This repo started out as a personal project image generation and has evolved (de
 Inspired by image generation systems like Stable Diffusion and Flux, an attempt was made to create a VAE
 so that one can generate multiple samples as long as the $\sigma$ and $\mu$.
 
-Obviously I gave up on this project, since I faced too many difficulties. Let me explain with the help of 2 classes $\rightarrow$ [cat, tree]
+Obviously I gave up on this project, since I faced too many difficulties. Let me explain with the help of 2
+classes $\rightarrow$ [cat, tree]
+
 
 1) One can use the image of the class 'cat' to generate $\sigma$ and $\mu$ to generate pictures of a cat. However,
    during evaluation one needs a classifier to test if the generated sample is that of a cat. This also means that a
@@ -140,14 +179,13 @@ Obviously I gave up on this project, since I faced too many difficulties. Let me
     2) a text encoder to generate the $\sigma$ and $\mu$.
 3) Looking through existing literature it is obvious that the generated images from VAEs are blurry which somehow
    escaped my attention during my first reading.
-   1) This is **extremely disappointing**. I am not interested in fine-tuning and spending time on a model only get bad
-      images. I
-      just stopped here and started doing thinking of doing something else.
-   2) Blurry images can confuse the classifier. This also means that I need to spend a lot of time making a good
-      classifier.
-   3) Maybe using $N(0,1)$ as a prior is not a good idea, perhaps using a power law distribution is better. Not sure how
-      to
-      do KL-Divergence of power law though.
+    1) This is **extremely disappointing**. I am not interested in fine-tuning and spending time on a model only get bad
+       images. I
+       just stopped here and started doing thinking of doing something else.
+    2) Blurry images can confuse the classifier. This also means that I need to spend a lot of time making a good
+       classifier.
+    3) Maybe using $N(0,1)$ as a prior is not a good idea, perhaps using a power law distribution is better. Not sure
+       how to do KL-Divergence of power law though.
 4) I know that there are VQ-VAEs and Normalizing Flows (NF) but the design of NF is very different from VAEs in general.
 
 If I am using normalized flows maybe one can have some model like the one below where the Jacobian $J$ is generated
@@ -170,10 +208,13 @@ z_g \rightarrow ImageDecoder \rightarrow x_g
 ```
 ### Some additional thoughts
 
-For normal image generation in a commercial environment use one can use a Transformer (Google's T5 and ViT-L) from Hugging
-Face and a model like Stable Diffusion (or Flux depending on license) and generate images as required. One can also
-train a LORA or a DORA to modify the inference of the underlying UNet
-and get results.
+
+### Some additional thoughts
+
+For normal image generation in a commercial environment use one can use a Transformer (Google's T5 and ViT-L) from
+HuggingFace and a model like Stable Diffusion (or Flux depending on license) and generate images as required. One can
+also train a LORA or a DORA to modify the inference of the underlying UNet and get results.
+
 
 Another solution will be to use ComfyUI which I use personally.
 
