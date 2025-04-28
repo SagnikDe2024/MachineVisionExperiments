@@ -9,56 +9,6 @@ from torchinfo import summary
 
 from src.common.common_utils import Ratio, generate_separated_kernels
 
-class EncoderLayer(nn.Module):
-	def __init__(self, input_channels, output_channels, kernel_ratios):
-		super().__init__()
-		total_ratios = sum(kernel_ratios)
-		mod_dic = ModuleDict()
-		out_channels = [int(round(output_channels * out_r / total_ratios, 0)) for out_r in kernel_ratios]
-		rest = sum(out_channels[1:]) if len(out_channels) > 1 else 0
-		out_channels[0] = output_channels - rest
-
-		for i, out_ch in enumerate(out_channels):
-			kernel_size = i * 2 + 3
-			output_channel = out_ch
-			if kernel_size == 3:
-				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=output_channel,
-									   kernel_size=kernel_size,
-									   padding=1, bias=False)
-				mod_dic[f'{kernel_size}'] = conv_layer
-
-				continue
-			conv_1, conv_2 = generate_separated_kernels(input_channels, output_channel, kernel_size, r=3 / kernel_size,
-														add_padding=True)
-			seq = nn.Sequential(conv_1, conv_2)
-			mod_dic[f'{kernel_size}'] = seq
-
-		self.conv_layers = mod_dic
-		self.norm = nn.BatchNorm2d(output_channels)
-		self.activation = nn.Mish()
-		self.pooling = nn.FractionalMaxPool2d(2,output_ratio=0.5**(1/7))
-
-
-
-	def forward(self, x):
-
-
-
-		convs = []
-		for conv_layer in self.conv_layers.values():
-			conv : Tensor = conv_layer.forward(x)
-			convs.append(conv)
-
-		concat_res = torch.cat(convs, dim=1)
-
-		normed_res = self.norm(concat_res)
-
-
-		return normed_res
-
-
-
-
 class InputLayer(nn.Module):
 	def __init__(self, in_channel, out_channel):
 		super().__init__()
