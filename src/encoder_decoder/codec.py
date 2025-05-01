@@ -1,13 +1,11 @@
 import torch
-
-from numpy import log2
 from torch import Tensor, nn
 from torch.nn import ModuleDict
 from torch.nn.functional import interpolate
 from torchinfo import summary
 
-
 from src.common.common_utils import Ratio, generate_separated_kernels
+
 
 class InputLayer(nn.Module):
 	def __init__(self, in_channel, out_channel):
@@ -153,9 +151,10 @@ class EncoderLayer(nn.Module):
 
 class DecoderLayer(nn.Module):
 
-	def __init__(self, input_channels, output_channels, kernels_and_ratios, strength=None):
+	def __init__(self, input_channels, output_channels, kernels_and_ratios, upscale=None):
 		super().__init__()
 		kernels, kernel_ratios = zip(*kernels_and_ratios)
+
 
 		total_ratios = sum(kernel_ratios)
 		mod_dic = ModuleDict()
@@ -177,6 +176,8 @@ class DecoderLayer(nn.Module):
 														Ratio(3 / kernel_size), add_padding=True)
 
 			seq = nn.Sequential(conv_1, conv_2)
+			if upscale is not None:
+				self.upscale = nn.Upsample(scale_factor=upscale, mode='bilinear')
 			mod_dic[f'{kernel_size}'] = seq
 
 		self.conv_layers = mod_dic
@@ -193,7 +194,10 @@ class DecoderLayer(nn.Module):
 
 	def forward(self, x: Tensor):
 
-		upsampled: Tensor = interpolate(x, size=(self.h, self.w), mode='bicubic')
+		if self.upscale is not None:
+			upsampled = self.upscale(x)
+		else:
+			upsampled: Tensor = interpolate(x, size=(self.h, self.w), mode='bicubic')
 
 		convs = []
 		for conv_layer in self.conv_layers.values():
