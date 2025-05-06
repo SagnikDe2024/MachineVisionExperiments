@@ -55,10 +55,18 @@ class Classifier(nn.Module):
 		return raw_probability_values, probabilities
 
 
-if __name__ == '__main__':
-	classifier = Classifier([384, 50, 10], 32, 2, 16, 128, 5)
+class EncoderCNNBlock(nn.Module):
+	def __init__(self, ch_in, ch_out) -> None:
+		super().__init__()
+		self.conv = nn.Conv2d(ch_in, ch_out, 3, stride=1, padding=1, bias=False)
+		self.act = nn.Mish()
+		self.bn = nn.BatchNorm2d(ch_out)
 
-	AppLog.info(f'{summary(classifier, input_size=(128, 3, 32, 32))}')
+	def forward(self, x):
+		x = self.conv(x)
+		x = self.bn(x)
+		fx = self.act(x)
+		return x + fx
 
 
 class Encoder(nn.Module):
@@ -74,18 +82,12 @@ class Encoder(nn.Module):
 
 		for layer in range(layers):
 			ch_in, ch_out = channels[layer], channels[layer + 1]
-			kernel_size = kernel_sizes[layer]
-			padding = kernel_size // 2
-			# conv_layer1, conv_layer2 = generate_separated_kernels(kernel_size, ch_in, ch_out)
 
-			conv_layer = nn.Conv2d(ch_in, ch_out, kernel_size, padding=padding)
-			activation_layer = nn.Mish()
+			conv_batch_activation = EncoderCNNBlock(ch_in, ch_out)
+
 			pooling_layer = nn.FractionalMaxPool2d(2, output_size=downsampled_sizes[layer])
-			# sequence.append(conv_layer1)
-			# sequence.append(conv_layer2)
-			sequence.append(conv_layer)
-			sequence.append(nn.BatchNorm2d(ch_out))
-			sequence.append(activation_layer)
+
+			sequence.append(conv_batch_activation)
 			sequence.append(pooling_layer)
 		self.sequence = nn.Sequential(*sequence)
 
@@ -143,3 +145,9 @@ def channel_kernel_compute(inp_out_channels: List[int], layers: int):
 	ratio = (out_channel / in_channel) ** (1 / layers)
 	channels = [round(in_channel * ratio ** x) for x in range(layers + 1)]
 	return channels
+
+
+if __name__ == '__main__':
+	classifier = Classifier([256, 128, 10], 32, 2, 48, 192, 5)
+
+	AppLog.info(f'{summary(classifier, input_size=(128, 3, 32, 32))}')
