@@ -40,7 +40,7 @@ class AppLog:
 
 			log_que = Queue(maxsize=1024)
 			q_handle = QueueHandler(log_que)
-			file_dir = Path(__file__).parent.resolve()
+			file_dir = Path(__file__).parent.parent.resolve()
 			logdir = file_dir.parent / 'log'
 			logfile = logdir / f'application_{pid}.log'
 			print('Logging to {}'.format(logfile))
