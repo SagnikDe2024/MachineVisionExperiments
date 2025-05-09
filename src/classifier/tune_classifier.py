@@ -12,9 +12,9 @@ from ray.tune.search.optuna import OptunaSearch
 from torchvision.datasets import CIFAR10
 from torchvision.transforms import transforms
 
-from src.common.common_utils import AppLog
 from src.classifier.classifier import Classifier
 from src.classifier.training import ExperimentModels
+from src.common.common_utils import AppLog
 
 
 @torch.compiler.disable(recursive=True)
@@ -50,19 +50,18 @@ class TuneClassifier:
 		self.dir_num = 0
 		self.working_dir = working_dir
 		self.checkpoint_store = self.working_dir / 'checkpoints'
-		scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=5,
-								  reduction_factor=3)
+		scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=6,
+								  reduction_factor=2)
 		search = OptunaSearch(metric='v_loss', mode='min', study_name='tune_classifier')
 		self.tune_run_config = RunConfig(name='tune_classifier', storage_path=f'{self.checkpoint_store}', )
 		experiment = ExperimentModels(create_classifier_from_config,
 									  lambda batch: load_cifar_dataset(self.working_dir, int(batch)))
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
 
-		self.search_space = {'learning_rate': tune.choice([0.001, 0.002, 0.003, 0.004]),
+		self.search_space = {
 							 'fcn_layers'       : tune.choice([4, 5]),
-							 'starting_channels': tune.quniform(32, 48, 2),
-							 # 'cnn_layers'       : tune.sample_from(lambda spec: get_cnn_layers_sample(spec)),
-							 'cnn_layers'       : tune.choice([5, 6]), 'final_channels': tune.quniform(128, 256, 2),
+				'starting_channels': tune.quniform(44, 64, 2),
+				'cnn_layers'       : tune.choice([5, 6]), 'final_channels': tune.quniform(200, 256, 2),
 							 'batch_size'   : tune.quniform(100, 300, 25)}
 
 		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.5})
@@ -75,7 +74,7 @@ class TuneClassifier:
 		param_s = f'{params}'
 		hashed = f'{hash(param_s)}'
 		self.dir_num += 1
-		return f'4_{save_time}_{hashed}_{self.dir_num}'
+		return f'c_{save_time}_{hashed}_{self.dir_num}'
 
 
 	def tune_classifier_model(self, restore=True):
@@ -144,7 +143,7 @@ def prepare_classifier_params(classifier_config):
 
 
 def tune_with_exp(exp_model: ExperimentModels, config):
-	result = exp_model.execute_single_experiment(config, config['batch_size'], config['learning_rate'])
+	result = exp_model.execute_single_experiment(config, config['batch_size'], 0.01)
 	best_vloss = result['v_loss']
 	trainable_params = result['trainable_params']
 	model_params = result['model_params']
