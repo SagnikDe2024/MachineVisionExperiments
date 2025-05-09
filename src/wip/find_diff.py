@@ -1,6 +1,5 @@
 import torch
-from torchvision.transforms import InterpolationMode
-from torchvision.transforms.v2.functional import crop_image, rgb_to_grayscale_image, rotate_image
+from torchvision.transforms.v2.functional import rgb_to_grayscale_image
 from torchvision.utils import save_image
 
 from src.common.common_utils import acquire_image
@@ -12,30 +11,22 @@ def find_central_diff(img):
 	return img_diff_w, img_diff_h
 
 
-def rot_diff(img):
-	shape = img.shape
-	h, w = shape[-2:]
-	rot_45 = rotate_image(img, 45, interpolation=InterpolationMode.BILINEAR, expand=True)
-	shape_rot = rot_45.shape
-	h_rot, w_rot = shape_rot[-2:]
-	r_dw, r_dh = find_central_diff(rot_45)
-	un_rot_w_raw = rotate_image(r_dw, -45, interpolation=InterpolationMode.BILINEAR, expand=False)
-	un_rot_h_raw = rotate_image(r_dh, -45, interpolation=InterpolationMode.BILINEAR, expand=False)
-	top = (h_rot - h) // 2
-	left = (w_rot - w) // 2
-	un_rot_w = crop_image(un_rot_w_raw, top + 1, left, h - 2, w - 2)
-	un_rot_h = crop_image(un_rot_h_raw, top, left + 1, h - 2, w - 2)
-	diff_h = un_rot_h + un_rot_w
-	diff_w = un_rot_w - un_rot_h
-	return diff_w, diff_h
+def find_diag_diff(img):
+	top_left = img[..., :-1, :-1]
+	top_right = img[..., :-1, 1:]
+	bottom_left = img[..., 1:, :-1]
+	bottom_right = img[..., 1:, 1:]
+
+	img_diff_w = ((top_right - bottom_left) + (bottom_right - top_left)) / 2
+	img_diff_h = (-(top_right - bottom_left) + (bottom_right - top_left)) / 2
+	img_avg = (top_right + bottom_left + bottom_right + top_left) / 4
+	return img_diff_w, img_diff_h, img_avg
 
 
 def relative_diff(img):
-	diff_w, diff_h = rot_diff(img)
-	crop_1_pixel = crop_image(img, 1, 1, img.shape[-2] - 2, img.shape[-1] - 2)
-	epsilon = 1 / (2 ** 16 - 1)
-	rel_diff_w = diff_w / (crop_1_pixel + epsilon)
-	rel_diff_h = diff_h / (crop_1_pixel + epsilon)
+	diff_w, diff_h, avg = find_diag_diff(img)
+	rel_diff_w = diff_w / (avg + 2 ** (-18))
+	rel_diff_h = diff_h / (avg + 2 ** (-18))
 	return rel_diff_w, rel_diff_h
 
 
@@ -62,13 +53,12 @@ def false_colour(img_diff):
 if __name__ == "__main__":
 	img_acq = acquire_image('data/normal_pic.jpg')
 	gray = rgb_to_grayscale_image(img_acq)
-	diff_w, diff_h = relative_diff(gray)
-	diff_2 = torch.pow(diff_w, 2) + torch.pow(diff_h, 2)
-	quant = torch.quantile(diff_2, 0.99)
-	max_v = diff_2.max()
-	print(f'quant = {quant}, diff_2 max = {max_v}')
-	removed_outlier = torch.where(diff_2 <= quant, diff_2, quant)
-
-	# abs_w = torch.log(torch.abs(diff_w) + torch.abs(diff_h) +1)
-	(a, b, c, d) = false_colour(removed_outlier)
-	save_image(d, 'out/diff_normal_pic.png')
+	# diff_w, diff_h = relative_diff(gray)
+	diff_w, diff_h, avg_img = find_diag_diff(gray)
+	diff_w_abs = torch.abs(diff_w)
+	diff_h_abs = torch.abs(diff_h)
+	diff_mul = diff_w_abs * diff_h_abs
+	tot = torch.div(-2 * diff_mul + diff_w_abs + diff_h_abs + 2 ** (-18), 1 - diff_mul + 2 ** (-18))
+	tot = torch.div(tot, avg_img * 2)
+	stacked = torch.concat([diff_h_abs, diff_w_abs, diff_h_abs], dim=0)
+	save_image(stacked, 'out/stacked_normal_pic.png')
