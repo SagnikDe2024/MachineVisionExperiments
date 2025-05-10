@@ -348,5 +348,13 @@ def visualize_tensor(tensor: Tensor):
 	imshow()
 
 
-class Applog:
-	pass
+def quincunx_diff_avg(img):
+	top_left = img[..., :-1, :-1]
+	top_right = img[..., :-1, 1:]
+	bottom_left = img[..., 1:, :-1]
+	bottom_right = img[..., 1:, 1:]
+
+	img_diff_w = ((top_right - bottom_left) + (bottom_right - top_left)) / 2
+	img_diff_h = (-(top_right - bottom_left) + (bottom_right - top_left)) / 2
+	img_avg = (top_right + bottom_left + bottom_right + top_left) / 4
+	return img_diff_w, img_diff_h, img_avg

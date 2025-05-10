@@ -2,25 +2,13 @@ import torch
 from torchvision.transforms.v2.functional import rgb_to_grayscale_image
 from torchvision.utils import save_image
 
-from src.common.common_utils import acquire_image
+from src.common.common_utils import acquire_image, quincunx_diff_avg
 
 
 def find_central_diff(img):
 	img_diff_w = (img[..., 2:] - img[..., :-2]) / 2
 	img_diff_h = (img[..., 2:, :] - img[..., :-2, :]) / 2
 	return img_diff_w, img_diff_h
-
-
-def quincunx_diff_avg(img):
-	top_left = img[..., :-1, :-1]
-	top_right = img[..., :-1, 1:]
-	bottom_left = img[..., 1:, :-1]
-	bottom_right = img[..., 1:, 1:]
-
-	img_diff_w = ((top_right - bottom_left) + (bottom_right - top_left)) / 2
-	img_diff_h = (-(top_right - bottom_left) + (bottom_right - top_left)) / 2
-	img_avg = (top_right + bottom_left + bottom_right + top_left) / 4
-	return img_diff_w, img_diff_h, img_avg
 
 
 def relative_diff(img):
