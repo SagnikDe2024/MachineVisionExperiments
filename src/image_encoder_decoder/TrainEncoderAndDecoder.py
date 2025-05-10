@@ -10,9 +10,9 @@ class TrainEncoderAndDecoder:
 		self.perceptual_loss = MultiscalePerceptualLoss()
 		self.epochs = epochs
 
-
-	def train(self, images):
-		for epoch in range(1, self.epochs + 1):
+	#
+	# def train(self, images):
+	# 	for epoch in range(1, self.epochs + 1):
 
 
 
