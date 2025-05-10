@@ -60,10 +60,13 @@ class TuneClassifier:
 
 		self.search_space = {
 				'fcn_layers'    : 4,
-				'starting_channels': tune.quniform(44, 64, 2),
+				'starting_channels': 54,
 				'cnn_layers'    : 6,
-				'final_channels': tune.quniform(200, 256, 2),
-				'batch_size'    : tune.quniform(100, 300, 25)}
+				'final_channels'   : 256,
+				'batch_size'       : tune.quniform(100, 300, 25),
+				'lr'               : tune.loguniform(1e-4, 1e-2),
+				'decay'            : tune.loguniform(1e-4, 1e-1)
+		}
 
 		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.5})
 		self.tune_config = tune.TuneConfig(num_samples=samples, trial_dirname_creator=self.trial_dir_name,
@@ -145,7 +148,7 @@ def prepare_classifier_params(classifier_config):
 
 
 def tune_with_exp(exp_model: ExperimentModels, config):
-	result = exp_model.execute_single_experiment(config, config['batch_size'], 0.001)
+	result = exp_model.execute_single_experiment(config, config['batch_size'], config['lr'], config['decay'])
 	best_vloss = result['v_loss']
 	trainable_params = result['trainable_params']
 	model_params = result['model_params']

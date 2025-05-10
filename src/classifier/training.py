@@ -120,7 +120,7 @@ class ExperimentModels:
 		self.model_creator_func = model_creator_func
 		self.loader_func = loader_func
 
-	def execute_single_experiment(self, model_config, batch_size, lr):
+	def execute_single_experiment(self, model_config, batch_size, lr, decay):
 		model: nn.Module = self.model_creator_func(model_config)
 		batch_size = int(round(batch_size))
 		train_loader, validation_loader = self.loader_func(batch_size)
@@ -132,7 +132,7 @@ class ExperimentModels:
 			f'{len(others) + len(bias_params)}')
 
 		optimizer = torch.optim.Adam([{'params': others}, {'params': bias_params, 'weight_decay': 0}],
-									 weight_decay=1e-2, lr=lr)
+									 weight_decay=decay, lr=lr)
 		loss_fn = nn.CrossEntropyLoss()
 		device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 		trainable_params = model_summary.trainable_params
