@@ -5,6 +5,7 @@ import torch
 from ray import tune
 from ray.tune import Checkpoint
 from torch import nn
+from torch.optim import lr_scheduler
 from torchinfo import summary
 
 from src.common.common_utils import AppLog
@@ -13,13 +14,16 @@ from src.common.common_utils import AppLog
 class TrainModel:
 	def __init__(self, save_checkpoint_epoch, model, loss_fn, optimizer, device, starting_epoch, ending_epoch) -> None:
 		self.save_checkpoint_epoch = save_checkpoint_epoch
-		self.model = model
+		self.model_orig = model
 		self.loss_fn = loss_fn
 		self.optimizer = optimizer
 		self.device = device
 		self.current_epoch = starting_epoch
 		self.ending_epoch = ending_epoch
 		self.best_vloss = float('inf')
+		self.model = torch.compile(self.model_orig, mode="max-autotune")
+		self.schduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.3, patience=3,
+													   verbose=True)
 
 	def train(self, train_loader) -> float:
 		self.model.train(True)
@@ -70,8 +74,12 @@ class TrainModel:
 
 			avg_loss = self.train(train_loader)
 			avg_vloss = self.evaluate(validation_loader)
-
-			AppLog.info(f'Epoch {self.current_epoch + 1}: Training loss = {avg_loss}, Validation Loss = {avg_vloss}')
+			self.schduler.step(avg_vloss)
+			others = [p for name, p in self.model_orig.named_parameters() if 'bias' not in name]
+			# AppLog.info(f'There are {others[0]} weight parameters.')
+			AppLog.info(
+				f'Epoch {self.current_epoch + 1}: Training loss = {avg_loss}, Validation Loss = {avg_vloss}, '
+				f'lr = {self.schduler.get_last_lr()}')
 
 			self.save_checkpoint_epoch(avg_vloss, self.model, self.current_epoch)
 			if avg_vloss < self.best_vloss:
@@ -117,8 +125,14 @@ class ExperimentModels:
 		batch_size = int(round(batch_size))
 		train_loader, validation_loader = self.loader_func(batch_size)
 		model_summary = summary(model, input_size=(batch_size, 3, 32, 32))
+		bias_params = [p for name, p in model.named_parameters() if 'bias' in name]
+		others = [p for name, p in model.named_parameters() if 'bias' not in name]
+		AppLog.info(
+			f'There are bias params: {len(bias_params)}, others: {len(others)}, total: '
+			f'{len(others) + len(bias_params)}')
 
-		optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+		optimizer = torch.optim.Adam([{'params': others}, {'params': bias_params, 'weight_decay': 0}],
+									 weight_decay=1e-2, lr=lr)
 		loss_fn = nn.CrossEntropyLoss()
 		device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 		trainable_params = model_summary.trainable_params
@@ -132,7 +146,7 @@ class ExperimentModels:
 				start = checkpoint_dict["epoch"]
 				model.load_state_dict(checkpoint_dict["model_state"])
 		torch.set_float32_matmul_precision('high')
-		model = torch.compile(model, mode="max-autotune")
+		# model = torch.compile(model, mode="max-autotune")
 		train_model = TrainModel(save_checkpoint, model, loss_fn, optimizer, device, start, 50)
 		best_vloss, model_params = train_model.train_and_evaluate(train_loader, validation_loader)
 		AppLog.info(

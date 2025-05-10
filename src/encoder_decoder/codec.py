@@ -1,149 +1,29 @@
 import torch
-
-from numpy import log2
 from torch import Tensor, nn
 from torch.nn import ModuleDict
 from torch.nn.functional import interpolate
 from torchinfo import summary
 
-
 from src.common.common_utils import Ratio, generate_separated_kernels
 
-class EncoderLayer(nn.Module):
-	def __init__(self, input_channels, output_channels, kernel_ratios):
+
+class EncoderLayer3Conv(nn.Module):
+	def __init__(self, input_channels, output_channels, kernels_and_ratios, downsample=0.5):
 		super().__init__()
+		kernels, kernel_ratios = zip(*kernels_and_ratios)
 		total_ratios = sum(kernel_ratios)
 		mod_dic = ModuleDict()
 		out_channels = [int(round(output_channels * out_r / total_ratios, 0)) for out_r in kernel_ratios]
 		rest = sum(out_channels[1:]) if len(out_channels) > 1 else 0
 		out_channels[0] = output_channels - rest
 
-		for i, out_ch in enumerate(out_channels):
-			kernel_size = i * 2 + 3
-			output_channel = out_ch
-			if kernel_size == 3:
-				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=output_channel,
-									   kernel_size=kernel_size,
-									   padding=1, bias=False)
-				mod_dic[f'{kernel_size}'] = conv_layer
 
-				continue
-			conv_1, conv_2 = generate_separated_kernels(input_channels, output_channel, kernel_size, r=3 / kernel_size,
-														add_padding=True)
-			seq = nn.Sequential(conv_1, conv_2)
-			mod_dic[f'{kernel_size}'] = seq
-
-		self.conv_layers = mod_dic
-		self.norm = nn.BatchNorm2d(output_channels)
-		self.activation = nn.Mish()
-		self.pooling = nn.FractionalMaxPool2d(2,output_ratio=0.5**(1/7))
-
-
-
-	def forward(self, x):
-
-
-
-		convs = []
-		for conv_layer in self.conv_layers.values():
-			conv : Tensor = conv_layer.forward(x)
-			convs.append(conv)
-
-		concat_res = torch.cat(convs, dim=1)
-
-		normed_res = self.norm(concat_res)
-
-
-		return normed_res
-
-
-
-
-class InputLayer(nn.Module):
-	def __init__(self, in_channel, out_channel):
-		super().__init__()
-		self.layer_1_1 = nn.Conv2d(in_channels=in_channel, out_channels=out_channel, kernel_size=3, stride=2,
-								   padding=1,
-								   bias=False)
-		layer_1_2_conv1, layer_1_2_conv2 = generate_separated_kernels(in_channel, out_channel, 5, Ratio(9 / 25),
-																	  stride=2)
-		self.layer_1_2_conv1 = layer_1_2_conv1
-		self.layer_1_2_conv2 = layer_1_2_conv2
-		self.norm = nn.BatchNorm2d(out_channel * 2)
-		self.activation = nn.Mish()
-
-	def forward(self, x):
-		x3 = self.layer_1_1.forward(x)
-		x5_1 = self.layer_1_2_conv1.forward(x)
-		x5_2 = self.layer_1_2_conv2.forward(x5_1)
-		x3and5 = torch.concat([x3, x5_2], 1)
-		normed = self.norm.forward(x3and5)
-		# reduced = self.reduce_conv.forward(normed)
-		activated = self.activation.forward(normed)
-		return activated
-
-
-class MiddleLayer(nn.Module):
-	def __init__(self, in_channel, out_channel):
-		super().__init__()
-		layer_1_1_conv1, layer_1_1_conv2 = generate_separated_kernels(in_channel, out_channel, 3, Ratio(2 / 3),
-																	  stride=2)
-		self.layer_1_1_conv1 = layer_1_1_conv1
-		self.layer_1_1_conv2 = layer_1_1_conv2
-		# self.layer_1_1 = nn.Conv2d(in_channels=in_channel, out_channels=out_channel, kernel_size=3, stride=2,
-		# padding=1,bias=False)
-		layer_1_2_conv1, layer_1_2_conv2 = generate_separated_kernels(in_channel, out_channel, 5, Ratio(9 / 25),
-																	  stride=2)
-		self.layer_1_2_conv1 = layer_1_2_conv1
-		self.layer_1_2_conv2 = layer_1_2_conv2
-		self.norm = nn.BatchNorm2d(out_channel * 2)
-		self.activation = nn.Mish()
-
-	def forward(self, x):
-		x3_1 = self.layer_1_1_conv1.forward(x)
-		x3_2 = self.layer_1_1_conv2.forward(x3_1)
-		x5_1 = self.layer_1_2_conv1.forward(x)
-		x5_2 = self.layer_1_2_conv2.forward(x5_1)
-		x3and5 = torch.concat([x3_2, x5_2], 1)
-		normed = self.norm.forward(x3and5)
-		activated = self.activation.forward(normed)
-		return activated
-
-
-class EncoderAux(nn.Module):
-	def __init__(self, channels):
-		super().__init__()
-		self.input_layer = InputLayer(in_channel=channels[0], out_channel=channels[1])
-		self.reduce_conv_input = nn.Conv2d(in_channels=channels[1] * 2, out_channels=(channels[1]), kernel_size=1,
-										   stride=1,
-										   padding=0)
-		self.middle_layer_1 = MiddleLayer(in_channel=channels[1], out_channel=channels[2])
-		self.reduce_conv_1 = nn.Conv2d(in_channels=channels[2] * 2, out_channels=(channels[2]), kernel_size=1,
-									   stride=1,
-									   padding=0)
-		self.middle_layer_2 = MiddleLayer(in_channel=channels[2], out_channel=channels[3])
-		self.reduce_conv_2 = nn.Conv2d(in_channels=channels[3] * 2, out_channels=channels[3], kernel_size=1,
-									   stride=1, padding=0)
-		self.middle_layer_3 = MiddleLayer(in_channel=channels[3], out_channel=channels[4])
-		self.reduce_conv_3 = nn.Conv2d(in_channels=channels[4] * 2, out_channels=channels[4], kernel_size=1,
-									   stride=1, padding=0)
-
-	def forward(self, x):
-		x1 = self.input_layer.forward(x)
-		x1_r = self.reduce_conv_input.forward(x1)
-		x2 = self.middle_layer_1.forward(x1_r)
-		x2_r = self.reduce_conv_1.forward(x2)
-		x3 = self.middle_layer_2.forward(x2_r)
-		x3_r = self.reduce_conv_2.forward(x3)
-		x4 = self.middle_layer_3.forward(x3_r)
-		x4_r = self.reduce_conv_3.forward(x4)
-		return x4_r
 
 
 class Encoder(nn.Module):
 	def __init__(self, channels):
 		super().__init__()
-		self.encoder_aux = EncoderAux(channels)
+		self.encoder_aux = Encoder(channels)
 
 	def forward(self, x):
 		x_w = x
@@ -192,7 +72,8 @@ class EncoderLayer(nn.Module):
 		concat_res = torch.cat(convs, dim=1)
 		normed_res = self.norm(concat_res)
 		active_res = self.activation(normed_res)
-		pooled_res = self.pooling(active_res)
+		# Use resnet style skip connection
+		pooled_res = self.pooling(active_res + normed_res)
 		return pooled_res
 
 
@@ -203,9 +84,10 @@ class EncoderLayer(nn.Module):
 
 class DecoderLayer(nn.Module):
 
-	def __init__(self, input_channels, output_channels, kernels_and_ratios, strength=None):
+	def __init__(self, input_channels, output_channels, kernels_and_ratios, upscale=None):
 		super().__init__()
 		kernels, kernel_ratios = zip(*kernels_and_ratios)
+
 
 		total_ratios = sum(kernel_ratios)
 		mod_dic = ModuleDict()
@@ -227,6 +109,8 @@ class DecoderLayer(nn.Module):
 														Ratio(3 / kernel_size), add_padding=True)
 
 			seq = nn.Sequential(conv_1, conv_2)
+			if upscale is not None:
+				self.upscale = nn.Upsample(scale_factor=upscale, mode='bilinear')
 			mod_dic[f'{kernel_size}'] = seq
 
 		self.conv_layers = mod_dic
@@ -243,7 +127,10 @@ class DecoderLayer(nn.Module):
 
 	def forward(self, x: Tensor):
 
-		upsampled: Tensor = interpolate(x, size=(self.h, self.w), mode='bicubic')
+		if self.upscale is not None:
+			upsampled = self.upscale(x)
+		else:
+			upsampled: Tensor = interpolate(x, size=(self.h, self.w), mode='bicubic')
 
 		convs = []
 		for conv_layer in self.conv_layers.values():
