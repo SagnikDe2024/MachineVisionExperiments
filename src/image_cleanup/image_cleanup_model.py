@@ -50,7 +50,8 @@ class ImageCleanUpDecoder(nn.Module):
 		for i, layer in enumerate(self.decoder.values()):
 			x = layer(x)
 			if i != self.decoder_layers - 1:
-				x = self.decoder_activation(x)
+				# Use resnet style skip connection
+				x = self.decoder_activation(x)+x
 			else:
 				x = self.decoder_activation_last(x)
 		return x
