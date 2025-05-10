@@ -7,7 +7,7 @@ from src.common.common_utils import AppLog, quincunx_diff_avg
 
 
 class MultiScaleGradientLoss(nn.Module):
-	def __init__(self, max_downsample, steps_to_downsample):
+	def __init__(self, max_downsample=8, steps_to_downsample=4):
 		super().__init__()
 		md = max_downsample
 		steps = steps_to_downsample
@@ -39,7 +39,7 @@ class MultiScaleGradientLoss(nn.Module):
 
 
 class MultiscalePerceptualLoss(nn.Module):
-	def __init__(self, max_downsample=4, steps_to_downsample=4):
+	def __init__(self, max_downsample=8, steps_to_downsample=4):
 		super().__init__()
 		self.luminosity = torch.tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1)
 		self.loss1 = nn.L1Loss()
