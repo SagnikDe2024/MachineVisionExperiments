@@ -250,7 +250,6 @@ class CNNUtils:
 		return None
 
 
-
 def get_diffs(prepared_image):
 	img_45 = rotate(prepared_image, 45, interpolation=InterpolationMode.BILINEAR, expand=True)
 	(_, h45, w45) = img_45.shape
@@ -346,6 +345,8 @@ def squash_n_to_1(tensor: Tensor):
 
 
 def visualize_tensor(tensor: Tensor):
-
 	imshow()
 
+
+class Applog:
+	pass
