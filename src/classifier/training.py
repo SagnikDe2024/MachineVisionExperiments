@@ -22,7 +22,7 @@ class TrainModel:
 		self.ending_epoch = ending_epoch
 		self.best_vloss = float('inf')
 		self.model = torch.compile(self.model_orig, mode="max-autotune")
-		self.schduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.5, patience=2,
+		self.schduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.3, patience=3,
 													   verbose=True)
 
 	def train(self, train_loader) -> float:

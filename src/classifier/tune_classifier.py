@@ -50,7 +50,7 @@ class TuneClassifier:
 		self.dir_num = 0
 		self.working_dir = working_dir
 		self.checkpoint_store = self.working_dir / 'checkpoints'
-		scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=6,
+		scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=7,
 								  reduction_factor=2)
 		search = OptunaSearch(metric='v_loss', mode='min', study_name='tune_classifier')
 		self.tune_run_config = RunConfig(name='tune_classifier', storage_path=f'{self.checkpoint_store}', )
@@ -59,10 +59,11 @@ class TuneClassifier:
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
 
 		self.search_space = {
-							 'fcn_layers'       : tune.choice([4, 5]),
+				'fcn_layers'    : 4,
 				'starting_channels': tune.quniform(44, 64, 2),
-				'cnn_layers'       : tune.choice([5, 6]), 'final_channels': tune.quniform(200, 256, 2),
-							 'batch_size'   : tune.quniform(100, 300, 25)}
+				'cnn_layers'    : 6,
+				'final_channels': tune.quniform(200, 256, 2),
+				'batch_size'    : tune.quniform(100, 300, 25)}
 
 		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.5})
 		self.tune_config = tune.TuneConfig(num_samples=samples, trial_dirname_creator=self.trial_dir_name,
@@ -74,16 +75,17 @@ class TuneClassifier:
 		param_s = f'{params}'
 		hashed = f'{hash(param_s)}'
 		self.dir_num += 1
-		return f'c_{save_time}_{hashed}_{self.dir_num}'
+		return f'd_{save_time}_{hashed}_{self.dir_num}'
 
 
 	def tune_classifier_model(self, restore=True):
 
 		tempdir = self.working_dir / 'out'
 		ray.init(_temp_dir=f'{tempdir.absolute()}')
-
+		location = f'{(self.checkpoint_store / "tune_classifier").absolute()}'
+		AppLog.info(f'Restoring from: {location}')
 		if restore and Tuner.can_restore(self.checkpoint_store):
-			mytune = Tuner.restore(f'{self.checkpoint_store.absolute()}', trainable=self.trainable_with_resources)
+			mytune = Tuner.restore(f'{location}', trainable=self.trainable_with_resources)
 		else:
 			mytune = Tuner(self.trainable_with_resources, param_space=self.search_space, tune_config=self.tune_config,
 						   run_config=self.tune_run_config)
@@ -143,7 +145,7 @@ def prepare_classifier_params(classifier_config):
 
 
 def tune_with_exp(exp_model: ExperimentModels, config):
-	result = exp_model.execute_single_experiment(config, config['batch_size'], 0.01)
+	result = exp_model.execute_single_experiment(config, config['batch_size'], 0.001)
 	best_vloss = result['v_loss']
 	trainable_params = result['trainable_params']
 	model_params = result['model_params']
