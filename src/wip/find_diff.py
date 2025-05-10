@@ -11,7 +11,7 @@ def find_central_diff(img):
 	return img_diff_w, img_diff_h
 
 
-def find_diag_diff(img):
+def quincunx_diff_avg(img):
 	top_left = img[..., :-1, :-1]
 	top_right = img[..., :-1, 1:]
 	bottom_left = img[..., 1:, :-1]
@@ -24,7 +24,7 @@ def find_diag_diff(img):
 
 
 def relative_diff(img):
-	diff_w, diff_h, avg = find_diag_diff(img)
+	diff_w, diff_h, avg = quincunx_diff_avg(img)
 	rel_diff_w = diff_w / (avg + 2 ** (-18))
 	rel_diff_h = diff_h / (avg + 2 ** (-18))
 	return rel_diff_w, rel_diff_h
@@ -54,7 +54,7 @@ if __name__ == "__main__":
 	img_acq = acquire_image('data/normal_pic.jpg')
 	gray = rgb_to_grayscale_image(img_acq)
 	# diff_w, diff_h = relative_diff(gray)
-	diff_w, diff_h, avg_img = find_diag_diff(gray)
+	diff_w, diff_h, avg_img = quincunx_diff_avg(gray)
 	diff_w_abs = torch.abs(diff_w)
 	diff_h_abs = torch.abs(diff_h)
 	diff_mul = diff_w_abs * diff_h_abs
