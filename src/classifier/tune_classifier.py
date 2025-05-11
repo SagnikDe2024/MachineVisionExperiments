@@ -25,7 +25,7 @@ def load_cifar_dataset(working_dir: Path, batch: int = 500):
 	testloc: Path = ((working_dir / 'data') / 'CIFAR') / 'test'
 
 	training_set = CIFAR10(root=trainloc, train=True, download=False, transform=transform)
-	validation_set = CIFAR10(root=testloc, train=False, download=False, transform=transform)
+	validation_set = CIFAR10(root=testloc, train=False, download=False, transform=transformV)
 	AppLog.info(f'{len(training_set)} training samples and {len(validation_set)} validation samples')
 	train_loader = torch.utils.data.DataLoader(training_set, batch_size=batch, shuffle=True, pin_memory=True,
 											   drop_last=True)
