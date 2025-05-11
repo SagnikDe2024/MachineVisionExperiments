@@ -18,7 +18,7 @@ Currently working on ~~3~~ 2 things
 ## Deep face and emotion
 
 
-This does not use any training, however, this is about using existing trained ML model to determine the bounding boxes
+This does not use any training, however, this is about using an existing trained ML model to determine the bounding boxes
 of people's faces in pictures and then determine
 
 
