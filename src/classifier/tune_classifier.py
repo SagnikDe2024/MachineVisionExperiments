@@ -19,7 +19,9 @@ from src.common.common_utils import AppLog
 
 @torch.compiler.disable(recursive=True)
 def load_cifar_dataset(working_dir: Path, batch: int = 500):
-	transform = transforms.Compose([transforms.RandomVerticalFlip() , transforms.RandomHorizontalFlip(), transforms.RandomAdjustSharpness(0.5,0.5),   transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+	transform = transforms.Compose([transforms.RandomVerticalFlip(), transforms.RandomHorizontalFlip(),
+									transforms.RandomAdjustSharpness(0.5, 0.5), transforms.ToTensor(),
+									transforms.Normalize((0.5,), (0.5,))])
 	transformV = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
 	trainloc: Path = ((working_dir / 'data') / 'CIFAR') / 'train'
 	testloc: Path = ((working_dir / 'data') / 'CIFAR') / 'test'
@@ -62,9 +64,9 @@ class TuneClassifier:
 				'fcn_layers'    : 4,
 				'starting_channels': 54,
 				'cnn_layers'    : 6,
-				'final_channels'   : 256,
+				'final_channels': 224,
 				'batch_size'       : tune.quniform(100, 300, 25),
-				'lr'               : tune.loguniform(1e-4, 1e-2),
+				'lr'            : tune.loguniform(1e-4, 1e-3),
 				'decay'            : tune.loguniform(1e-4, 1e-1)
 		}
 
@@ -78,7 +80,7 @@ class TuneClassifier:
 		param_s = f'{params}'
 		hashed = f'{hash(param_s)}'
 		self.dir_num += 1
-		return f'd_{save_time}_{hashed}_{self.dir_num}'
+		return f'a_{save_time}_{hashed}_{self.dir_num}'
 
 
 	def tune_classifier_model(self, restore=True):
