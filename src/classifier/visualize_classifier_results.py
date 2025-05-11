@@ -42,12 +42,14 @@ def find_classify_checkpoint():
 	classifier_checkpoints_dir = working_dir / 'checkpoints' / 'tune_classifier'
 	sub_directories = [sub for sub in classifier_checkpoints_dir.iterdir() if sub.is_dir()]
 	param_dict = {'batch_size'   : [], 'cnn_layers': [], 'fcn_layers': [], 'final_channels': [],
-				  'learning_rate': [], 'starting_channels': [], 'v_loss': [], 'total_params': [], 'checkpoint_path':
-					  []}
+				  'lr': [], 'starting_channels': [], 'v_loss': [], 'total_params': [], 'checkpoint_path':
+					  [],'decay' : []}
+	AppLog.info(f'Found {len(sub_directories)} classifier directories')
 	for sub_directory in sub_directories:
 		params_json_path = sub_directory / 'params.json'
 		progress_csv_path = sub_directory / 'progress.csv'
 		if not (params_json_path.exists() and progress_csv_path.exists()):
+			AppLog.warning(f'No params.json or progress.csv found for {sub_directory}')
 			continue
 
 		tune_params = json.load(open(params_json_path))
@@ -70,16 +72,27 @@ def find_classify_checkpoint():
 		total_params = model_with_params.trainable_params
 
 		final_channels, fcn_layers, cnn_layers, starting_channels = prepare_classifier_params(tune_params)
+		if 'lr' in tune_params:
+			lr = tune_params['lr']
+		elif 'learning_rate' in tune_params:
+			lr = tune_params['learning_rate']
+		else:
+			lr = -1
+		if 'decay' in tune_params:
+			decay = tune_params['decay']
+		else:
+			decay = 0
 
 		param_dict['batch_size'].append(batch_size)
 		param_dict['cnn_layers'].append(cnn_layers)
 		param_dict['fcn_layers'].append(fcn_layers)
 		param_dict['final_channels'].append(final_channels)
-		param_dict['learning_rate'].append(tune_params['learning_rate'])
+		param_dict['lr'].append(lr)
 		param_dict['starting_channels'].append(starting_channels)
 		param_dict['total_params'].append(total_params)
 		param_dict['v_loss'].append(min_vloss)
 		param_dict['checkpoint_path'].append(checkpoint)
+		param_dict['decay'].append(decay)
 
 	v_loss_df = pd.DataFrame(param_dict)
 	return v_loss_df
@@ -105,7 +118,8 @@ def get_state_and_show_accuracy(checkpoint_path) -> dict[str, float]:
 	correct_pred = {classname: 0 for classname in classes}
 	total_pred = {classname: 0 for classname in classes}
 	AppLog.info(f'Showing perf of {checkpoint_path}')
-
+	correct = 0
+	total = 0
 	with torch.no_grad():
 		for img, labels in valid:
 			img = img.cuda()
@@ -117,13 +131,16 @@ def get_state_and_show_accuracy(checkpoint_path) -> dict[str, float]:
 			for label, prediction in zip(labels, pred_labels):
 				if label == prediction:
 					correct_pred[classes[label]] += 1
+					correct += 1
 				total_pred[classes[label]] += 1
+				total += 1
 
 	class_accuracy: dict[str, float] = {}
 	for classname, correct_count in correct_pred.items():
 		accuracy = 100 * float(correct_count) / total_pred[classname]
 		class_accuracy[classname] = accuracy
 		AppLog.info(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
+	AppLog.info(f'Accuracy for all classes is {correct/total*100:.1f} %')
 	return class_accuracy
 
 def show_model_accuracy() -> None:
@@ -131,23 +148,25 @@ def show_model_accuracy() -> None:
 
 
 if __name__ == '__main__':
+	# remove_empty_checkpoint_directory()
 	# result_df = find_classify_checkpoint()
 	# min_vloss = result_df.v_loss.min()
 	# min_vloss_row = result_df[
 	# 	result_df.v_loss == min_vloss]
 	# pd.options.display.max_columns = None
-	# print(f'{min_vloss_row}')
+	# AppLog.info(f'{min_vloss_row}')
 	# checkpoint_used = min_vloss_row.to_dict()['checkpoint_path']
 	#
-	# check = [v for k,v in checkpoint_used.items()][0]
-	# AppLog.info(f'Checkpoint used: {check}')
+	# checkpoint_path = [v for k,v in checkpoint_used.items()][0]
+	# AppLog.info(f'Checkpoint used: {checkpoint_path}')
 	work_path = Path.cwd()
-	chkpath = (work_path / 'checkpoints' / 'tune_classifier' / '4_20250408T035811_-8491173734139600649_1' /
-			   'checkpoint_000009' / 'model_checkpoint.pth')
+	# chkpath = (work_path / 'checkpoints' / 'tune_classifier' / '4_20250408T035811_-8491173734139600649_1' /
+	# 		   'checkpoint_000009' / 'model_checkpoint.pth')
+	checkpoint_path = (work_path / 'checkpoints' / 'tune_classifier' / 'n_20250511T035510_-2292925252669878343_1' /
+			   'checkpoint_000017' / 'model_checkpoint.pth')
 	# path = Path('C:\mywork\python\MachineVisionExperiments\checkpoints\tune_classifier\4_20250408T035811_
 	# -8491173734139600649_1\checkpoint_000009\model_checkpoint.pth')
-	get_state_and_show_accuracy(chkpath)
-
+	get_state_and_show_accuracy(checkpoint_path)
 	AppLog.shut_down()
 
 # removed_empty_checkpoint_directory()
