@@ -19,8 +19,8 @@ from src.common.common_utils import AppLog
 
 @torch.compiler.disable(recursive=True)
 def load_cifar_dataset(working_dir: Path, batch: int = 500):
-	transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
-
+	transform = transforms.Compose([transforms.RandomVerticalFlip() , transforms.RandomHorizontalFlip(), transforms.RandomAdjustSharpness(0.5,0.5),   transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+	transformV = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
 	trainloc: Path = ((working_dir / 'data') / 'CIFAR') / 'train'
 	testloc: Path = ((working_dir / 'data') / 'CIFAR') / 'test'
 
