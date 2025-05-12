@@ -6,9 +6,10 @@ import torch
 from pandas import read_csv
 from torchinfo import summary
 
-from src.common.common_utils import AppLog
 from src.classifier.classifier import Classifier
-from src.classifier.tune_classifier import load_cifar_dataset, prepare_classifier_params
+from src.classifier.training import load_cifar_dataset
+from src.classifier.tune_classifier import prepare_classifier_params
+from src.common.common_utils import AppLog
 
 
 def show_images(img_b) -> None:
