@@ -2,49 +2,16 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import ray
 import torch
 from ray import tune
 from ray.tune import Result, RunConfig, Tuner
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.search.optuna import OptunaSearch
-from torchvision.datasets import CIFAR10
-from torchvision.transforms import transforms
 
 from src.classifier.classifier import Classifier
-from src.classifier.training import ExperimentModels
+from src.classifier.training import ExperimentModels, load_cifar_dataset
 from src.common.common_utils import AppLog
-
-
-@torch.compiler.disable(recursive=True)
-def load_cifar_dataset(working_dir: Path, batch: int = 500):
-	transform = transforms.Compose([transforms.RandomVerticalFlip(), transforms.RandomHorizontalFlip(),
-									transforms.RandomAdjustSharpness(0.5, 0.5), transforms.ToTensor(),
-									transforms.Normalize((0.5,), (0.5,))])
-	transformV = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
-	trainloc: Path = ((working_dir / 'data') / 'CIFAR') / 'train'
-	testloc: Path = ((working_dir / 'data') / 'CIFAR') / 'test'
-
-	training_set = CIFAR10(root=trainloc, train=True, download=False, transform=transform)
-	validation_set = CIFAR10(root=testloc, train=False, download=False, transform=transformV)
-	AppLog.info(f'{len(training_set)} training samples and {len(validation_set)} validation samples')
-	train_loader = torch.utils.data.DataLoader(training_set, batch_size=batch, shuffle=True, pin_memory=True,
-											   drop_last=True)
-	validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=5000, shuffle=True, pin_memory=True,
-													drop_last=True)
-
-	return train_loader, validation_loader
-
-
-# Gets the cnn_layers sample based on fcn_layers sampled.
-def get_cnn_layers_sample(tune_params):
-	print(f'tune_params is {tune_params}')
-	if 'fcn_layers' in tune_params:
-		fcn_layers = tune_params['fcn_layers']
-	else:
-		fcn_layers = tune_params['config']['fcn_layers']
-	return np.random.uniform(4, 12 - fcn_layers)
 
 
 class TuneClassifier:
@@ -52,22 +19,22 @@ class TuneClassifier:
 		self.dir_num = 0
 		self.working_dir = working_dir
 		self.checkpoint_store = self.working_dir / 'checkpoints'
-		scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=40, grace_period=7,
-								  reduction_factor=2)
+		scheduler = ASHAScheduler(metric='v_loss', mode='min', time_attr='epoch', max_t=90, grace_period=12,
+		                          reduction_factor=2, brackets=2)
 		search = OptunaSearch(metric='v_loss', mode='min', study_name='tune_classifier')
-		self.tune_run_config = RunConfig(name='tune_classifier', storage_path=f'{self.checkpoint_store}', )
+		self.tune_run_config = RunConfig(name='tune_classifier_augmented', storage_path=f'{self.checkpoint_store}', )
 		experiment = ExperimentModels(create_classifier_from_config,
 									  lambda batch: load_cifar_dataset(self.working_dir, int(batch)))
 		tune_exp = lambda tune_params: tune_with_exp(experiment, tune_params)
 
 		self.search_space = {
-				'fcn_layers'    : 4,
+				'fcn_layers'    : 3,
 				'starting_channels': 54,
-				'cnn_layers'    : 6,
-				'final_channels': 224,
-				'batch_size'       : tune.quniform(100, 300, 25),
-				'lr'            : tune.loguniform(1e-4, 1e-3),
-				'decay'            : tune.loguniform(1e-4, 1e-1)
+				'cnn_layers'    : 7,
+				'final_channels': tune.quniform(256 - 32, 256 + 32, 2),
+				'batch_size'    : tune.quniform(100, 500, 25),
+				'lr'            : tune.loguniform(1e-5, 3e-4),
+				'decay'         : tune.uniform(0, 1)
 		}
 
 		self.trainable_with_resources = tune.with_resources(tune_exp, {"cpu": 1, "gpu": 0.5})
@@ -150,7 +117,7 @@ def prepare_classifier_params(classifier_config):
 
 
 def tune_with_exp(exp_model: ExperimentModels, config):
-	result = exp_model.execute_single_experiment(config, config['batch_size'], config['lr'], config['decay'])
+	result = exp_model.execute_single_experiment(config, config['batch_size'], config['lr'])
 	best_vloss = result['v_loss']
 	trainable_params = result['trainable_params']
 	model_params = result['model_params']
