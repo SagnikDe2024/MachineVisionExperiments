@@ -31,7 +31,7 @@ class Classifier(nn.Module):
 
 		self.encoder = encoder
 		sequence = nn.Sequential()
-		sequence.append(nn.Mish())
+		# sequence.append(nn.Mish())
 
 		# Flatten the result from the encoder first
 		sequence.append(nn.Flatten())
@@ -148,6 +148,6 @@ def channel_kernel_compute(inp_out_channels: List[int], layers: int):
 
 
 if __name__ == '__main__':
-	classifier = Classifier([256, 128, 10], 32, 2, 48, 192, 5)
+	classifier = Classifier([256, 128, 10], 32, 2, 54, 192, 7)
 
 	AppLog.info(f'{summary(classifier, input_size=(128, 3, 32, 32))}')
