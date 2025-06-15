@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.nn.functional import interpolate
+from torchmetrics.image import VisualInformationFidelity
 
 from src.common.common_utils import AppLog, quincunx_diff_avg
 
@@ -81,3 +82,18 @@ class ReconstructionLoss(nn.Module):
 
 	def forward(self, inferred_image, target_image):
 		return self.loss1(inferred_image, target_image)
+
+
+class VisualInformationFidelityLoss(nn.Module):
+	def __init__(self):
+		super().__init__()
+		self.vif_metric = VisualInformationFidelity()
+		AppLog.info("Initialized VisualInformationFidelityLoss")
+
+	def forward(self, inferred_image, target_image):
+		# VIF is a similarity metric (higher is better)
+		# For a loss function, we want lower to be better, so we use 1 - VIF
+		vif_score = self.vif_metric(inferred_image, target_image)
+		# Ensure the score is between 0 and 1
+		vif_score = torch.clamp(vif_score, 0.0, 1.0)
+		return 1.0 - vif_score
