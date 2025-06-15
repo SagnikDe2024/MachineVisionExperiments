@@ -1,8 +1,8 @@
-torch~=2.7.0+cu126
+torch~=2.7.1+cu128
 ray~=2.44.0
 torchinfo~=1.8.0
 matplotlib~=3.10.1
 numpy~=2.1.2
-torchvision~=0.22.0+cu126
+torchvision~=0.22.0+cu128
 pandas~=2.2.3
 datasets~=3.3.2
