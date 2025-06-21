@@ -6,4 +6,4 @@ numpy~=2.1.2
 torchvision~=0.22.0+cu128
 pandas~=2.2.3
 datasets~=3.3.2
-torchmetrics~=1.2.0
+torchmetrics~=1.7.3
