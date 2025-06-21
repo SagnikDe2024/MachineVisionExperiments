@@ -95,5 +95,4 @@ class VisualInformationFidelityLoss(nn.Module):
 		# For a loss function, we want lower to be better, so we use 1 - VIF
 		vif_score = self.vif_metric(inferred_image, target_image)
 		# Ensure the score is between 0 and 1
-		vif_score = torch.clamp(vif_score, 0.0, 1.0)
 		return 1.0 - vif_score
