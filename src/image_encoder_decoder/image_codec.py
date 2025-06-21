@@ -101,7 +101,7 @@ class Encoder(nn.Module):
 
 	def forward(self, x):
 
-		x_orig_max = torch.amax(torch.abs(x), dim=(1, 2, 3), keepdim=False)
+		x_orig_max = torch.amax(torch.abs(x), dim=(1, 2, 3), keepdim=True)
 		for layer in [self.layer1, self.layer2, self.layer3, self.layer4]:
 			x = layer(x)
 			x = self.reduce(x)
@@ -153,10 +153,14 @@ class Decoder(nn.Module):
 			decoder_layers[f'{layer}'] = dec_layer
 
 		self.decoder_layers = decoder_layers
+		self.size = [128, 128]
+
+	def set_size(self, h, w):
+		self.size = [h, w]
 
 	def forward(self, coded_latent):
 		latent_z, maxes = coded_latent
-		_, _, h, w = latent_z.shape
+		[h, w] = self.size
 
 		z_m = latent_z
 		for dec_layer in self.decoder_layers.values():
@@ -165,7 +169,9 @@ class Decoder(nn.Module):
 		x = interpolate(z_m, size=(h, w), mode='bilinear', align_corners=False)
 		x_abs = torch.abs(x)
 		x_max = torch.amax(x_abs, dim=(1, 2, 3), keepdim=True)
-		x_max_new = maxes * x_max
+		x_normed = x / x_max
+		x_max_new = torch.mul(x_normed, maxes)
+
 		return x_max_new
 
 
@@ -177,6 +183,7 @@ class ImageCodec(nn.Module):
 
 	def forward(self, x):
 		latent, maxes = self.encoder.forward(x)
+		self.decoder.set_size(x.shape[2], x.shape[3])
 		final_res = self.decoder.forward((latent, maxes))
 		return final_res
 
