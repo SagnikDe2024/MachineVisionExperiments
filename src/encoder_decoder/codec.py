@@ -4,18 +4,107 @@ from torch.nn import ModuleDict
 from torch.nn.functional import interpolate
 from torchinfo import summary
 
-from src.common.common_utils import Ratio, generate_separated_kernels
+from src.common.common_utils import ParamA, generate_separated_kernels
+
+
+# class L1BatchNorm2D(nn.Module):
+# 	def __init__(self, channels):
+# 		super().__init__()
+# 		self.bnl1_weights = nn.Parameter(torch.ones(channels))
+# 		self.bnl1_bias = nn.Parameter(torch.zeros(channels))
+# 		self.bnl1_const = math.pi/2
+#
+# 	def forward(self, x):
+#
+# 		l1_mean = torch.mean(x, dim=-4, keepdim=True)
+# 		diff = x - l1_mean
+# 		l1_std = torch.abs(diff).mean(dim=-4, keepdim=True)
+# 		x_normed = diff / (self.bnl1_const*l1_std + 1e-8)
+# 		x_normed_weights_bias = x_normed * self.bnl1_weights + self.bnl1_bias
+# 		return x_normed_weights_bias
+
+def create_sep_kernels(input_channels, output_channels, kernel_size):
+	min_channels = min(input_channels, output_channels)
+	padding = kernel_size // 2
+	conv1 = nn.Conv2d(in_channels=input_channels, out_channels=min_channels, kernel_size=(1, kernel_size),
+	                  padding=(0, padding), bias=False)
+	conv2 = nn.Conv2d(in_channels=min_channels, out_channels=output_channels, kernel_size=(kernel_size, 1),
+	                  padding=(padding, 0), bias=False)
+	return nn.Sequential(conv1, conv2)
+
+
+class EncoderLayer1st(nn.Module):
+	def __init__(self, output_channels, kernel_list):
+		super().__init__()
+		input_channels = 3
+		self.conv_layers = ModuleDict()
+		self.norm_layers = ModuleDict()
+		self.activation = nn.Mish()
+		self.final_norm = nn.BatchNorm2d(output_channels)
+		self.final_conv = nn.LazyConv2d(out_channels=output_channels, kernel_size=1, padding=0, bias=False)
+		for i, kernel_size in enumerate(kernel_list):
+			output_channel = output_channels
+			if kernel_size <= 3:
+				padding = kernel_size // 2
+				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=output_channel,
+				                       kernel_size=kernel_size,
+				                       padding=padding, bias=False)
+				self.conv_layers[f'{i}'] = conv_layer
+				self.norm_layers[f'{i}'] = nn.BatchNorm2d(output_channel)
+				continue
+			seq = create_sep_kernels(input_channels, output_channel, kernel_size)
+			self.conv_layers[f'{i}'] = seq
+			self.norm_layers[f'{i}'] = nn.BatchNorm2d(output_channel)
+
+	def forward(self, x):
+		convs = []
+		i = 0
+		for conv_layer, bn_layer in zip(self.conv_layers.values(), self.norm_layers.values()):
+			conv: Tensor = conv_layer.forward(x)
+			normed_res = bn_layer.forward(conv)
+			convs.append(conv)
+			active_res = self.activation(normed_res)
+			# print(f'i={i}, {active_res.shape}')
+			i += 1
+			convs.append(active_res)
+		concat_res = torch.cat(convs, dim=1)
+		compress_res = self.final_conv(concat_res)
+		normed_res = self.final_norm(compress_res)
+		active_res = self.activation(normed_res)
+		return active_res
 
 
 class EncoderLayer3Conv(nn.Module):
-	def __init__(self, input_channels, output_channels, kernels_and_ratios, downsample=0.5):
+	def __init__(self, input_channels, output_channels, kernels, cardinality):
 		super().__init__()
-		kernels, kernel_ratios = zip(*kernels_and_ratios)
-		total_ratios = sum(kernel_ratios)
-		mod_dic = ModuleDict()
-		out_channels = [int(round(output_channels * out_r / total_ratios, 0)) for out_r in kernel_ratios]
-		rest = sum(out_channels[1:]) if len(out_channels) > 1 else 0
-		out_channels[0] = output_channels - rest
+		self.compress = nn.LazyConv2d(out_channels=output_channels, kernel_size=1, padding=0, bias=False)
+		self.activation = nn.Mish()
+		total_groups = cardinality * kernels
+		input_per_kernel = round(input_channels / total_groups)
+		output_per_kernel = round(output_channels / total_groups)
+		par_kernels = ModuleDict()
+		for i in range(1, kernels + 1):
+			for j in range(cardinality):
+				conv_lower = nn.Conv2d(in_channels=input_channels, out_channels=input_per_kernel, kernel_size=1,
+				                       padding=0, bias=False)
+				conv_layer = nn.Conv2d(in_channels=input_per_kernel, out_channels=output_per_kernel, kernel_size=3,
+				                       padding=i, bias=False, dilation=i)
+				all_ops = nn.Sequential(conv_lower, conv_layer, nn.BatchNorm2d(output_per_kernel), nn.Mish())
+				par_kernels[f'{i}_{j}'] = all_ops
+		self.all_kernels = par_kernels
+		self.final_norm = nn.BatchNorm2d(output_channels)
+
+	def forward(self, x):
+		evaluated = []
+		for kernel_name, kernel in self.all_kernels.items():
+			r = kernel(x)
+			evaluated.append(r)
+		evaluated.append(x)
+		concat_res = torch.cat(evaluated, dim=1)
+		compress_res = self.compress(concat_res)
+		normed_res = self.final_norm(compress_res)
+		active_res = self.activation(normed_res)
+		return active_res
 
 
 
@@ -23,16 +112,20 @@ class EncoderLayer3Conv(nn.Module):
 class Encoder(nn.Module):
 	def __init__(self, channels):
 		super().__init__()
-		self.encoder_aux = Encoder(channels)
+		self.layer1 = EncoderLayer1st(channels[0], [1, 3, 5, 7])
+		self.layer2 = EncoderLayer3Conv(channels[0], channels[1], 3, 1)
+		self.layer3 = EncoderLayer3Conv(channels[1], channels[2], 3, 2)
+		self.layer4 = EncoderLayer3Conv(channels[2], channels[3], 3, 3)
+		self.reduce = nn.MaxPool2d(2)
+		self.activation = nn.Mish()
 
 	def forward(self, x):
-		x_w = x
-		z_w = self.encoder_aux.forward(x_w)
-		x_h = torch.rot90(x, 1, (2, 3))
-		z_h_a = self.encoder_aux.forward(x_h)
-		z_h = torch.rot90(z_h_a, -1, (2, 3))
-		return torch.concat([z_w, z_h], 1)
-
+		for layer in [self.layer1, self.layer2, self.layer3, self.layer4]:
+			x = layer(x)
+			x = self.reduce(x)
+		x_abs = torch.abs(x)
+		x_max = torch.amax(x_abs, dim=(1, 2, 3), keepdim=True)
+		return x / x_max
 
 
 class EncoderLayer(nn.Module):
@@ -55,7 +148,7 @@ class EncoderLayer(nn.Module):
 				mod_dic[f'{kernel_size}'] = conv_layer
 				continue
 			conv_1, conv_2 = generate_separated_kernels(input_channels, output_channel, kernel_size,
-														Ratio(3 / kernel_size), add_padding=True)
+			                                            ParamA(0), add_padding=True)
 			seq = nn.Sequential(conv_1, conv_2)
 			mod_dic[f'{kernel_size}'] = seq
 
@@ -86,6 +179,7 @@ class DecoderLayer(nn.Module):
 
 	def __init__(self, input_channels, output_channels, kernels_and_ratios, upscale=None):
 		super().__init__()
+		self.upscale = None
 		kernels, kernel_ratios = zip(*kernels_and_ratios)
 
 
@@ -106,11 +200,11 @@ class DecoderLayer(nn.Module):
 				mod_dic[f'{kernel_size}'] = conv_layer
 				continue
 			conv_1, conv_2 = generate_separated_kernels(input_channels, output_channel, kernel_size,
-														Ratio(3 / kernel_size), add_padding=True)
+			                                            ParamA(1), add_padding=True)
 
 			seq = nn.Sequential(conv_1, conv_2)
 			if upscale is not None:
-				self.upscale = nn.Upsample(scale_factor=upscale, mode='bilinear')
+				self.upscale = nn.Upsample(scale_factor=upscale, mode='bicubic')
 			mod_dic[f'{kernel_size}'] = seq
 
 		self.conv_layers = mod_dic
@@ -158,7 +252,7 @@ class Decoder(nn.Module):
 		# AppLog.info(
 		# 		f'Layers = {layers}, channels = {channels}')
 
-		kernel_channel_ratios = [1, 3 / 5, 3 / 7]
+		kernel_channel_ratios = [(3, 1)]
 
 		decoder_layers = ModuleDict()
 		activation_layers = ModuleDict()
@@ -169,7 +263,7 @@ class Decoder(nn.Module):
 			dec_layer = DecoderLayer(ch_in, ch_out, kernel_channel_ratios)
 			decoder_layers[f'{layer}'] = dec_layer
 			activation_layers[f'{layer}'] = nn.Mish()
-		last_layer = DecoderLayer(channels[-2], channels[-1], [1])
+		last_layer = DecoderLayer(channels[-2], channels[-1], [(3, 1)])
 		decoder_layers['last'] = last_layer
 		activation_layers['last'] = nn.Tanh()
 		self.decoder_layers = decoder_layers
@@ -200,12 +294,14 @@ class Decoder(nn.Module):
 
 
 if __name__ == '__main__':
-	dec = Decoder(in_channels=288, out_channels=48)
-	# decl = DecoderLayer(64, 32, [1, 3 / 5, 3 / 7])
-	# for layer_name, params in decl.named_parameters():
+	enc = Encoder(channels=[64, 128, 192, 256])
+	summary(enc, input_size=(1, 3, 1024, 1024))
+# dec = Decoder(in_channels=288, out_channels=48)
+# # decl = DecoderLayer(64, 32, [1, 3 / 5, 3 / 7])
+# # for layer_name, params in decl.named_parameters():
+# # 	print(layer_name, params.shape)
+# dec.set(256, 256)
+# for layer_name, params in dec.named_parameters():
 	# 	print(layer_name, params.shape)
-	dec.set(256, 256)
-	for layer_name, params in dec.named_parameters():
-		print(layer_name, params.shape)
-	summary(dec, input_size=(1, 288, 16, 16))
+# summary(dec, input_size=(1, 288, 16, 16))
 # AppLog.shut_down()
