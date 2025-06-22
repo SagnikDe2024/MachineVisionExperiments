@@ -1,34 +1,33 @@
 import io
 import os
+from pathlib import Path
 
 import pandas as pd
 import torch
 import torchvision
 from PIL import Image
 from torch.optim import lr_scheduler
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import InterpolationMode
 
 from src.common.common_utils import AppLog
-from src.encoder_decoder.image_reconstruction_loss import VisualInformationFidelityLoss
+from src.encoder_decoder.image_reconstruction_loss import MultiscalePerceptualLoss
 from src.image_encoder_decoder.image_codec import ImageCodec
 
 
-class ParquetImageDataset(torch.utils.data.Dataset):
-	def __init__(self, parquet_file):
-		self.df = pd.read_parquet(parquet_file)
-		self.transform = torchvision.transforms.Compose([
-				torchvision.transforms.ToTensor(),
-				torchvision.transforms.Resize(512, interpolation=InterpolationMode.BILINEAR),
-				torchvision.transforms.Normalize(mean=0.5, std=0.5), torchvision.transforms.RandomCrop(512),
-		])
+class ImageFolderDataset(Dataset):
+	def __init__(self, path : Path,transform=None):
+		super().__init__()
+		self.path = path
+		self.files = [picfile for picfile in path.iterdir() if picfile.is_file()]
+		self.transform = transform
 
 	def __len__(self):
-		return len(self.df)
+		return len(self.files)
 
 	def __getitem__(self, idx):
-		image_data = self.df.iloc[idx]['image']['bytes']
-		image = Image.open(io.BytesIO(image_data))
+		image_path = self.files[idx]
+		image = Image.open(image_path)
 		return self.transform(image)
 
 def get_data():
@@ -95,18 +94,30 @@ class TrainEncoderAndDecoder:
 
 
 def prepare_data():
-	# Create CC directory if it doesn't exist
-	os.makedirs('data/CC', exist_ok=True)
+
+	os.makedirs('data/CC/train', exist_ok=True)
+	os.makedirs('data/CC/validate', exist_ok=True)
 
 	# Read and concatenate parquet files
 	df1 = pd.read_parquet('data/train-00000-of-00002.parquet')
 	df2 = pd.read_parquet('data/train-00001-of-00002.parquet')
 	combined_df = pd.concat([df1, df2], ignore_index=True)
 	AppLog.info(f'Combined dataset size: {len(combined_df)}')
-	# Split into train and validation sets (80/20)
-	train_size = int(0.8 * len(combined_df))
-	train_df = combined_df[:train_size]
-	val_df = combined_df[train_size:]
+	combined_df = combined_df.sample(frac=1).reset_index(drop=True)
+	total = len(combined_df)
+	AppLog.info(f'Dataset shuffled: {total}')
+	for i,row in enumerate(combined_df.iterrows()):
+		image_data = row[1]['image']
+		image_bytes = image_data['bytes']
+		try:
+			image_bytes_raw = io.BytesIO(image_bytes)
+			image = Image.open(image_bytes_raw)
+			file_name = f'data/CC/train/image_{i}.jpeg' if i < total * 0.8 else f'data/CC/validate/image_{i}.jpeg'
+			image.save(file_name)
+		except Exception as e:
+			AppLog.error(f'Error reading image {i}: {e}')
+		if i % 100 == 0:
+			AppLog.info(f'Images saved: {i}')
 
 	# Save split datasets
 	train_df.to_parquet('data/CC/train.parquet')
