@@ -41,8 +41,8 @@ def get_data():
 	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform)
 	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform)
 
-	train_loader = DataLoader(train_set, batch_size=8, shuffle=True)
-	val_loader = DataLoader(validate_set, batch_size=8, shuffle=False)
+	train_loader = DataLoader(train_set, batch_size=8, shuffle=True,drop_last=True)
+	val_loader = DataLoader(validate_set, batch_size=8, shuffle=False,drop_last=True)
 	return train_loader, val_loader
 
 
@@ -69,7 +69,6 @@ class TrainEncoderAndDecoder:
 			data = data.to(self.device)
 			self.optimizer.zero_grad()
 			result = self.model(data)
-			AppLog.info(f'Batch {batch_idx}: Result: {result.shape} , Data: {data.shape}')
 			loss = self.loss_func.forward(result, data)
 			tloss += loss.item()
 			loss.backward()
