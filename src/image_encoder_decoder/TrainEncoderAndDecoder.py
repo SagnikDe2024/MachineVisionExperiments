@@ -30,7 +30,7 @@ class ImageFolderDataset(Dataset):
 
 	def __getitem__(self, idx):
 		image_path = self.files[idx]
-		image = Image.open(image_path)
+		image = acquire_image(image_path)
 		return self.transform(image)
 
 def get_data():
@@ -185,7 +185,34 @@ def train_codec(learning_rate, start_new):
 		trainer.train_and_evaluate(train_loader, val_loader)
 
 
+def test_and_show():
+	save_location = 'checkpoints/encode_decode/train_codec.pth'
+	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64, 3])
+	optimizer = torch.optim.AdamW(enc.parameters(), lr=0.1)
+	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
+	if os.path.exists(save_location):
+		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer)
+		AppLog.info(f'Loaded checkpoint from epoch {epoch}')
+		enc.eval()
+		enc.to(traindevice)
+		with torch.no_grad():
+			image = acquire_image('data/normal_pic.jpg')
+			image = image.unsqueeze(0)
+			image = image.to(traindevice)
+			imagef = (image - 1 / 2) * 2
+			encoded = enc.forward(imagef)
+			encoded = (encoded / 2) + 1 / 2
+			image_pil = torchvision.transforms.ToPILImage()(image.squeeze(0))
+			encoded_pil = torchvision.transforms.ToPILImage()(encoded.squeeze(0))
+			image_pil.show()
+			encoded_pil.show()
+
+
 if __name__ == '__main__':
+	parser = argparse.ArgumentParser(description='Train encoder and decoder model')
+	parser.add_argument('--learning-rate', type=float, default=1e-2, help='Learning rate for training')
+	parser.add_argument('--start-new', type=bool, default=False, help='Start new training instead of resuming')
+	args = parser.parse_args()
 	# prepare_data()
 	train_codec(args.learning_rate, args.start_new)
 	# test_and_show()
