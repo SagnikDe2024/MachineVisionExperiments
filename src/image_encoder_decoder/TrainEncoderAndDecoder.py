@@ -31,7 +31,7 @@ class ImageFolderDataset(Dataset):
 		return self.transform(image)
 
 def get_data():
-	size = 400
+	size = 300
 	transform = torchvision.transforms.Compose([
 			torchvision.transforms.ToTensor(),
 			torchvision.transforms.Resize(size, interpolation=InterpolationMode.BILINEAR),
@@ -41,8 +41,8 @@ def get_data():
 	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform)
 	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform)
 
-	train_loader = DataLoader(train_set, batch_size=8, shuffle=True,drop_last=True)
-	val_loader = DataLoader(validate_set, batch_size=8, shuffle=False,drop_last=True)
+	train_loader = DataLoader(train_set, batch_size=12, shuffle=True,drop_last=True)
+	val_loader = DataLoader(validate_set, batch_size=12, shuffle=False,drop_last=True)
 	return train_loader, val_loader
 
 
@@ -86,7 +86,7 @@ class TrainEncoderAndDecoder:
 		return vloss
 
 	def train_and_evaluate(self, train_loader, val_loader):
-
+		AppLog.info(f'Training from {self.current_epoch} to {self.ending_epoch} epochs.')
 		epoch = self.current_epoch
 		while epoch < self.ending_epoch:
 			train_loss = self.train_one_epoch(train_loader)
@@ -146,7 +146,7 @@ def load_training_state(location, model, optimizer):
 def train_codec():
 	save_location = 'checkpoints/encode_decode/train_codec.pth'
 	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64, 3])
-	optimizer = torch.optim.AdamW(enc.parameters(), lr=1e-4, amsgrad=True)
+	optimizer = torch.optim.AdamW(enc.parameters(), lr=1e-3, amsgrad=True)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	train_loader, val_loader = get_data()
 	if os.path.exists(save_location):
