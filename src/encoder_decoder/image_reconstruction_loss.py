@@ -47,33 +47,28 @@ class MultiscalePerceptualLoss(nn.Module):
 		self.loss1 = nn.L1Loss()
 		self.max_downsample = max_downsample
 		self.steps_to_downsample = steps_to_downsample
-		self.loss_scales = [max_downsample ** (step / (steps_to_downsample - 1)) for step in range(
-				steps_to_downsample)]
 		self.conv2d_diffx = torch.tensor([[-1, -1], [1, 1]]).unsqueeze(0).unsqueeze(0) / 2
 		self.conv2d_diffy = torch.tensor([[-1, 1], [-1, 1]]).unsqueeze(0).unsqueeze(0) / 2
 		self.conv2d_avg = torch.tensor([[1,1],[1,1]]).unsqueeze(0).unsqueeze(0) / 4
+		self.downsample_ratio = max_downsample ** (-1 / (steps_to_downsample - 1))
 
-		AppLog.info(f"Loss scales: {self.loss_scales}")
+		AppLog.info(f"Downsample ratio: {self.downsample_ratio}")
 
 	def get_lumniosity(self, image):
 		this_dev = self.dummy_param.device
 		self.luminosity = self.luminosity.to(this_dev)
 		return torch.sum(image * self.luminosity, dim=1, keepdim=True)
 
-	def get_gradients(self, scale, img):
-		sc_image = interpolate(img, scale_factor=scale, mode='bilinear', align_corners=False)
+	def get_gradients_no_scale(self, sc_image):
 		this_dev = self.dummy_param.device
 		img_diff_x = conv2d(sc_image, self.conv2d_diffx.to(this_dev), padding=0)
 		img_diff_y = conv2d(sc_image, self.conv2d_diffy.to(this_dev), padding=0)
 		img_avg = conv2d(sc_image, self.conv2d_avg.to(this_dev), padding=0)
-		# img_diff_x, img_diff_y, img_avg = quincunx_diff_avg(sc_image)
 		return img_diff_x, img_diff_y, img_avg
 
-
-
-	def loss_at_scale(self, inferred_image_lumniosity, scale_factor, target_image_lumniosity):
-		inf_diff_x, inf_diff_y, _ = self.get_gradients(scale_factor, inferred_image_lumniosity)
-		target_diff_x, target_diff_y, target_avg = self.get_gradients(scale_factor, target_image_lumniosity)
+	def calc_loss(self, inferred_image, target_image):
+		inf_diff_x, inf_diff_y, _ = self.get_gradients_no_scale(inferred_image)
+		target_diff_x, target_diff_y, target_avg = self.get_gradients_no_scale(target_image)
 		resp_avg = 1 / (target_avg + 1e-5)
 		total_loss = self.loss1(inf_diff_x * resp_avg, target_diff_x * resp_avg) + self.loss1(inf_diff_y *
 		                                                                                      resp_avg,
@@ -84,13 +79,14 @@ class MultiscalePerceptualLoss(nn.Module):
 	def forward(self, inferred_image, target_image):
 		inferred_image_lumniosity = self.get_lumniosity(inferred_image)
 		target_image_lumniosity = self.get_lumniosity(target_image)
-		scale_zero = self.loss_scales[0]
-		loss = self.loss_at_scale(inferred_image_lumniosity, scale_zero, target_image_lumniosity)
+		loss = self.calc_loss(inferred_image_lumniosity, target_image_lumniosity)
 
-		rest = self.loss_scales[1:]
-
-		for scale_factor in rest:
-			newloss = self.loss_at_scale(inferred_image_lumniosity, scale_factor, target_image_lumniosity)
+		for steps in range(1, self.steps_to_downsample):
+			inferred_image_lumniosity = interpolate(inferred_image_lumniosity, scale_factor=self.downsample_ratio,
+			                                        mode='bilinear')
+			target_image_lumniosity = interpolate(target_image_lumniosity, scale_factor=self.downsample_ratio,
+			                                      mode='bilinear')
+			newloss = self.calc_loss(inferred_image_lumniosity, target_image_lumniosity)
 			loss+=newloss
 		return loss
 
