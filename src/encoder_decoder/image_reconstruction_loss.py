@@ -107,12 +107,12 @@ class ReconstructionLoss(nn.Module):
 class VisualInformationFidelityLoss(nn.Module):
 	def __init__(self):
 		super().__init__()
-		self.vif_metric = VisualInformationFidelity()
+		# self.vif_metric = VisualInformationFidelity()
 		AppLog.info("Initialized VisualInformationFidelityLoss")
 
 	def forward(self, inferred_image, target_image):
 		# VIF is a similarity metric (higher is better)
 		# For a loss function, we want lower to be better, so we use 1 - VIF
-		vif_score = self.vif_metric(inferred_image, target_image)
+		vif_score = visual_information_fidelity(inferred_image,target_image)
 		# Ensure the score is between 0 and 1
 		return 1.0 - vif_score
