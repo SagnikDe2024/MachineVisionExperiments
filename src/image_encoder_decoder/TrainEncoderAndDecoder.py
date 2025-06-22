@@ -64,7 +64,7 @@ class TrainEncoderAndDecoder:
 	def train_one_epoch(self, train_loader):
 		self.model.train(True)
 		tloss = 0.0
-
+		trained_one_batch = False
 		for batch_idx, data in enumerate(train_loader):
 			data = data.to(self.device)
 			self.optimizer.zero_grad()
@@ -73,6 +73,9 @@ class TrainEncoderAndDecoder:
 			tloss += loss.item()
 			loss.backward()
 			self.optimizer.step()
+			if not trained_one_batch:
+				trained_one_batch = True
+				AppLog.info(f'Training loss: {tloss}, batch: {batch_idx + 1}')
 		return tloss
 
 	def evaluate(self, val_loader):
@@ -97,8 +100,9 @@ class TrainEncoderAndDecoder:
 					f'lr = {self.scheduler.get_last_lr()}')
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
-				save_training_state('checkpoints/encode_decode/train_codec.pth', self.model_orig.state_dict(),
-				                    self.optimizer.state_dict(), epoch, val_loss)
+				save_training_state('checkpoints/encode_decode/train_codec.pth', self.model_orig, self.optimizer,
+				                    epoch,
+				                    val_loss)
 			epoch += 1
 
 
@@ -131,7 +135,7 @@ def prepare_data():
 
 def save_training_state(location, model, optimizer, epoch, vloss):
 	torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(), 'epoch': epoch,
-			'v_loss'              : vloss, }, location, )
+	            'v_loss': vloss, }, location, )
 
 
 def load_training_state(location, model, optimizer):
