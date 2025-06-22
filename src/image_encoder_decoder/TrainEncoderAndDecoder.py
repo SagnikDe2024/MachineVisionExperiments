@@ -1,3 +1,4 @@
+import argparse
 import io
 import os
 from pathlib import Path
@@ -6,12 +7,14 @@ import pandas as pd
 import torch
 import torchvision
 from PIL import Image
-from torch.optim import lr_scheduler
+from torch.optim.lr_scheduler import CyclicLR
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import InterpolationMode
+from torchvision.transforms.v2 import CenterCrop, RandomCrop, RandomHorizontalFlip, RandomResize, RandomVerticalFlip, \
+	Resize
 
-from src.common.common_utils import AppLog
-from src.encoder_decoder.image_reconstruction_loss import MultiscalePerceptualLoss
+from src.common.common_utils import AppLog, acquire_image
+from src.encoder_decoder.image_reconstruction_loss import ReconstructionLoss
 from src.image_encoder_decoder.image_codec import ImageCodec
 
 
@@ -31,15 +34,19 @@ class ImageFolderDataset(Dataset):
 		return self.transform(image)
 
 def get_data():
-	size = 300
-	transform = torchvision.transforms.Compose([
-			torchvision.transforms.ToTensor(),
-			torchvision.transforms.Resize(size, interpolation=InterpolationMode.BILINEAR),
-			torchvision.transforms.Normalize(mean=0.5, std=0.5), torchvision.transforms.RandomCrop(size),
+	minsize = 300
+	maxsize = round(minsize * 2)
+	transform_train = torchvision.transforms.Compose([
+			RandomResize(minsize, maxsize),
+			RandomCrop(minsize), RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5),
+	])
+	transform_validate = torchvision.transforms.Compose([
+			Resize(minsize, interpolation=InterpolationMode.BILINEAR),
+			CenterCrop(minsize),
 	])
 
-	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform)
-	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform)
+	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform_train)
+	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform_validate)
 
 	train_loader = DataLoader(train_set, batch_size=12, shuffle=True,drop_last=True)
 	val_loader = DataLoader(validate_set, batch_size=12, shuffle=False,drop_last=True)
@@ -47,34 +54,41 @@ def get_data():
 
 
 class TrainEncoderAndDecoder:
-	def __init__(self, model, optimizer, train_device, starting_epoch, ending_epoch, vloss=float('inf')):
+	def __init__(self, model, optimizer, train_device, cycle_sch, save_training_fn, starting_epoch, ending_epoch,
+	             vloss=float('inf')):
 		self.model_orig = model
-
+		self.save_training_fn = save_training_fn
 		self.optimizer = optimizer
 		self.device = train_device
 		self.current_epoch = starting_epoch
 		self.ending_epoch = ending_epoch
 		self.best_vloss = vloss
 		self.model = torch.compile(self.model_orig, mode="default").to(self.device)
-		self.loss_func = MultiscalePerceptualLoss().to(self.device)
-		self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=4,
-		                                                min_lr=1e-8)
+		self.trained_one_batch = False
+		# self.loss_func = torch.compile(MultiscalePerceptualLoss(max_downsample=4), mode="default").to(self.device)
+		self.loss_func = torch.compile(ReconstructionLoss(), mode="default").to(self.device)
+		self.scheduler = cycle_sch(self.optimizer, self.current_epoch)
+
+	# self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=3,
+	#                                                 min_lr=1e-8)
 
 
 	def train_one_epoch(self, train_loader):
 		self.model.train(True)
 		tloss = 0.0
-		trained_one_batch = False
 		for batch_idx, data in enumerate(train_loader):
 			data = data.to(self.device)
+			data = (data - 1 / 2) * 2
 			self.optimizer.zero_grad()
 			result = self.model(data)
+			result = result / 2 + 1 / 2
 			loss = self.loss_func.forward(result, data)
 			tloss += loss.item()
 			loss.backward()
 			self.optimizer.step()
-			if not trained_one_batch:
-				trained_one_batch = True
+			self.scheduler.step()
+			if not self.trained_one_batch:
+				self.trained_one_batch = True
 				AppLog.info(f'Training loss: {tloss}, batch: {batch_idx + 1}')
 		return tloss
 
@@ -84,7 +98,9 @@ class TrainEncoderAndDecoder:
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
 				data = data.to(self.device)
+				data = (data - 1 / 2) * 2
 				result = self.model(data)
+				result = result / 2 + 1 / 2
 				vloss += self.loss_func(result, data).item()
 		return vloss
 
@@ -94,15 +110,13 @@ class TrainEncoderAndDecoder:
 		while epoch < self.ending_epoch:
 			train_loss = self.train_one_epoch(train_loader)
 			val_loss = self.evaluate(val_loader)
-			self.scheduler.step(val_loss)
+			# self.scheduler.step(val_loss,epoch=epoch)
 			AppLog.info(
 					f'Epoch {epoch + 1}: Training loss = {train_loss}, Validation Loss = {val_loss}, '
 					f'lr = {self.scheduler.get_last_lr()}')
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
-				save_training_state('checkpoints/encode_decode/train_codec.pth', self.model_orig, self.optimizer,
-				                    epoch,
-				                    val_loss)
+				self.save_training_fn(self.model_orig, self.optimizer, epoch, val_loss)
 			epoch += 1
 
 
@@ -147,23 +161,32 @@ def load_training_state(location, model, optimizer):
 	return model, optimizer, epoch, vloss
 
 
-def train_codec():
-	save_location = 'checkpoints/encode_decode/train_codec.pth'
+def train_codec(learning_rate, start_new):
+	save_location = 'checkpoints/encode_decode/train_codec_augmented.pth'
 	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64, 3])
-	optimizer = torch.optim.AdamW(enc.parameters(), lr=1e-3, amsgrad=True)
+	optimizer = torch.optim.Adam(
+			[{'params': enc.encoder.parameters()},
+			 {'params': enc.decoder.parameters(), 'weight_decay': 0.001}],
+			lr=learning_rate)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	train_loader, val_loader = get_data()
-	if os.path.exists(save_location):
+	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p: save_training_state(save_location, enc_p,
+	                                                                                    optimizer_p, epoch_p, vloss_p)
+	scheduler_fn = lambda optim, epoch_p: CyclicLR(optim, base_lr=learning_rate, max_lr=0.1, mode='triangular2',
+	                                               last_epoch=epoch_p)
+	if os.path.exists(save_location) and not start_new:
 		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer)
 		AppLog.info(f'Loaded checkpoint from epoch {epoch}')
-		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, epoch, 30, vloss)
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler_fn, save_training_fn, epoch, 30, vloss)
 		trainer.train_and_evaluate(train_loader, val_loader)
 	else:
-		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, 0, 30)
+		AppLog.info(f'Training from scratch. Using learning rate {learning_rate} and device {traindevice}')
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler_fn, save_training_fn, 0, 30)
 		trainer.train_and_evaluate(train_loader, val_loader)
 
 
 if __name__ == '__main__':
 	# prepare_data()
-	train_codec()
+	train_codec(args.learning_rate, args.start_new)
+	# test_and_show()
 	AppLog.shut_down()
