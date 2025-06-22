@@ -50,19 +50,21 @@ class TrainEncoderAndDecoder:
 		self.ending_epoch = ending_epoch
 		self.best_vloss = float('inf')
 		self.model = torch.compile(self.model_orig, mode="default").to(self.device)
-		self.vif_loss = VisualInformationFidelityLoss().to(self.device)
+		self.loss_func = MultiscalePerceptualLoss().to(self.device)
 		self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=4,
 		                                                min_lr=1e-8)
+
 
 	def train_one_epoch(self, train_loader):
 		self.model.train(True)
 		tloss = 0.0
+
 		for batch_idx, data in enumerate(train_loader):
 			data = data.to(self.device)
 			self.optimizer.zero_grad()
 			result = self.model(data)
 			AppLog.info(f'Batch {batch_idx}: Result: {result.shape} , Data: {data.shape}')
-			loss = self.vif_loss.forward(result, data)
+			loss = self.loss_func.forward(result, data)
 			tloss += loss.item()
 			loss.backward()
 			self.optimizer.step()
@@ -75,7 +77,7 @@ class TrainEncoderAndDecoder:
 			for batch_idx, data, in enumerate(val_loader):
 				data = data.to(self.device)
 				result = self.model(data)
-				vloss += self.vif_loss(result, data).item()
+				vloss += self.loss_func(result, data).item()
 		return vloss
 
 	def train_and_evaluate(self, train_loader, val_loader):
