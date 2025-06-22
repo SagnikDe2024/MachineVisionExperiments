@@ -119,27 +119,18 @@ def prepare_data():
 		if i % 100 == 0:
 			AppLog.info(f'Images saved: {i}')
 
-	# Save split datasets
-	train_df.to_parquet('data/CC/train.parquet')
-	val_df.to_parquet('data/CC/validate.parquet')
-	AppLog.info(f'Train dataset size: {len(train_df)}')
-	AppLog.info(f'Validation dataset size: {len(val_df)}')
 
-
-def create_dataset_and_dataloader_from_parquet(parquet_file_path):
-
-	dataset = ParquetImageDataset(parquet_file_path)
-	dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True)
-	return dataloader
-
-
-if __name__ == '__main__':
-	# prepare_data()
-	torch.set_float32_matmul_precision('high')
+def train_codec():
 	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64, 3])
 	optimizer = torch.optim.AdamW(enc.parameters(), lr=1e-4, amsgrad=True)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	train_loader, val_loader = get_data()
 	trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, 0, 30)
 	trainer.train_and_evaluate(train_loader, val_loader)
+
+
+
+if __name__ == '__main__':
+	# prepare_data()
+	train_codec()
 	AppLog.shut_down()
