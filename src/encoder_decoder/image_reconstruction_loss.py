@@ -47,12 +47,20 @@ class MultiscalePerceptualLoss(nn.Module):
 		self.loss1 = nn.L1Loss()
 		self.max_downsample = max_downsample
 		self.steps_to_downsample = steps_to_downsample
-		self.conv2d_diffx = torch.tensor([[-1, -1], [1, 1]]).unsqueeze(0).unsqueeze(0) / 2
-		self.conv2d_diffy = torch.tensor([[-1, 1], [-1, 1]]).unsqueeze(0).unsqueeze(0) / 2
-		self.conv2d_avg = torch.tensor([[1,1],[1,1]]).unsqueeze(0).unsqueeze(0) / 4
+		diffx1 = torch.tensor([[-1, -1], [1, 1]])
+		diffy1 = torch.tensor([[-1, 1], [-1, 1]])
+		avg1 = torch.tensor([[1, 1], [1, 1]])
+		diffx3 = torch.stack([diffx1, diffx1, diffx1], dim=0)
+		diffy3 = torch.stack([diffy1, diffy1, diffy1], dim=0)
+		avg3 = torch.stack([avg1, avg1, avg1], dim=0)
+		self.conv2d_diffx = diffx3.unsqueeze(0) / 2
+		self.conv2d_diffy = diffy3.unsqueeze(0) / 2
+		self.conv2d_avg = avg3.unsqueeze(0) / 4
 		self.downsample_ratio = max_downsample ** (-1 / (steps_to_downsample - 1))
-
 		AppLog.info(f"Downsample ratio: {self.downsample_ratio}")
+		AppLog.info(
+			f'Stacked shapes diffx: {self.conv2d_diffx.shape}, diffy: {self.conv2d_diffy.shape}, '
+			f'avg: {self.conv2d_avg.shape}')
 
 	def get_lumniosity(self, image):
 		this_dev = self.dummy_param.device
@@ -69,7 +77,8 @@ class MultiscalePerceptualLoss(nn.Module):
 	def calc_loss(self, inferred_image, target_image):
 		inf_diff_x, inf_diff_y, _ = self.get_gradients_no_scale(inferred_image)
 		target_diff_x, target_diff_y, target_avg = self.get_gradients_no_scale(target_image)
-		resp_avg = 1 / (target_avg + 1e-5)
+		avg_lum = self.get_lumniosity(target_avg)
+		resp_avg = 1 / (avg_lum + 1e-5)
 		total_loss = self.loss1(inf_diff_x * resp_avg, target_diff_x * resp_avg) + self.loss1(inf_diff_y *
 		                                                                                      resp_avg,
 		                                                                                      target_diff_y *
@@ -77,16 +86,14 @@ class MultiscalePerceptualLoss(nn.Module):
 		return total_loss
 
 	def forward(self, inferred_image, target_image):
-		inferred_image_lumniosity = self.get_lumniosity(inferred_image)
-		target_image_lumniosity = self.get_lumniosity(target_image)
-		loss = self.calc_loss(inferred_image_lumniosity, target_image_lumniosity)
+		loss = self.calc_loss(inferred_image, target_image)
 
 		for steps in range(1, self.steps_to_downsample):
-			inferred_image_lumniosity = interpolate(inferred_image_lumniosity, scale_factor=self.downsample_ratio,
+			inferred_image = interpolate(inferred_image, scale_factor=self.downsample_ratio,
 			                                        mode='bilinear')
-			target_image_lumniosity = interpolate(target_image_lumniosity, scale_factor=self.downsample_ratio,
+			target_image = interpolate(target_image, scale_factor=self.downsample_ratio,
 			                                      mode='bilinear')
-			newloss = self.calc_loss(inferred_image_lumniosity, target_image_lumniosity)
+			newloss = self.calc_loss(inferred_image, target_image)
 			loss+=newloss
 		return loss
 
