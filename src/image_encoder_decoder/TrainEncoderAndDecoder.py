@@ -47,14 +47,14 @@ def get_data():
 
 
 class TrainEncoderAndDecoder:
-	def __init__(self, model, optimizer, train_device, starting_epoch, ending_epoch):
+	def __init__(self, model, optimizer, train_device, starting_epoch, ending_epoch, vloss=float('inf')):
 		self.model_orig = model
 
 		self.optimizer = optimizer
 		self.device = train_device
 		self.current_epoch = starting_epoch
 		self.ending_epoch = ending_epoch
-		self.best_vloss = float('inf')
+		self.best_vloss = vloss
 		self.model = torch.compile(self.model_orig, mode="default").to(self.device)
 		self.loss_func = MultiscalePerceptualLoss().to(self.device)
 		self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=4,
@@ -97,6 +97,8 @@ class TrainEncoderAndDecoder:
 					f'lr = {self.scheduler.get_last_lr()}')
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
+				save_training_state('checkpoints/encode_decode/train_codec.pth', self.model_orig.state_dict(),
+				                    self.optimizer.state_dict(), epoch, val_loss)
 			epoch += 1
 
 
@@ -127,14 +129,34 @@ def prepare_data():
 			AppLog.info(f'Images saved: {i}')
 
 
+def save_training_state(location, model, optimizer, epoch, vloss):
+	torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(), 'epoch': epoch,
+			'v_loss'              : vloss, }, location, )
+
+
+def load_training_state(location, model, optimizer):
+	checkpoint = torch.load(location)
+	model.load_state_dict(checkpoint['model_state_dict'])
+	optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+	epoch = checkpoint['epoch']
+	vloss = checkpoint['v_loss']
+	return model, optimizer, epoch, vloss
+
+
 def train_codec():
+	save_location = 'checkpoints/encode_decode/train_codec.pth'
 	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64, 3])
 	optimizer = torch.optim.AdamW(enc.parameters(), lr=1e-4, amsgrad=True)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	train_loader, val_loader = get_data()
-	trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, 0, 30)
-	trainer.train_and_evaluate(train_loader, val_loader)
-
+	if os.path.exists(save_location):
+		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer)
+		AppLog.info(f'Loaded checkpoint from epoch {epoch}')
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, epoch, 30, vloss)
+		trainer.train_and_evaluate(train_loader, val_loader)
+	else:
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, 0, 30)
+		trainer.train_and_evaluate(train_loader, val_loader)
 
 
 if __name__ == '__main__':
