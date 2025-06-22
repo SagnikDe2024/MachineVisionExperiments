@@ -31,12 +31,18 @@ class ImageFolderDataset(Dataset):
 		return self.transform(image)
 
 def get_data():
+	size = 400
+	transform = torchvision.transforms.Compose([
+			torchvision.transforms.ToTensor(),
+			torchvision.transforms.Resize(size, interpolation=InterpolationMode.BILINEAR),
+			torchvision.transforms.Normalize(mean=0.5, std=0.5), torchvision.transforms.RandomCrop(size),
+	])
 
-	train_set = ParquetImageDataset('data/CC/train.parquet')
-	validate_set = ParquetImageDataset('data/CC/validate.parquet')
+	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform)
+	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform)
 
-	train_loader = DataLoader(train_set, batch_size=16, shuffle=True)
-	val_loader = DataLoader(validate_set, batch_size=16, shuffle=False)
+	train_loader = DataLoader(train_set, batch_size=8, shuffle=True)
+	val_loader = DataLoader(validate_set, batch_size=8, shuffle=False)
 	return train_loader, val_loader
 
 
