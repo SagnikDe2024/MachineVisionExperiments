@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 import torchvision
 from PIL import Image
+from torch.nn.functional import interpolate
 from torch.optim.lr_scheduler import CyclicLR
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import InterpolationMode
@@ -35,7 +36,7 @@ class ImageFolderDataset(Dataset):
 
 
 def get_data():
-	minsize = 256
+	minsize = 320
 	maxsize = round(minsize * 2.5)
 	transform_train = torchvision.transforms.Compose([
 			RandomResize(minsize, maxsize),
@@ -49,8 +50,8 @@ def get_data():
 	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform_train)
 	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform_validate)
 
-	train_loader = DataLoader(train_set, batch_size=12, shuffle=True, drop_last=True)
-	val_loader = DataLoader(validate_set, batch_size=12, shuffle=False, drop_last=True)
+	train_loader = DataLoader(train_set, batch_size=16, shuffle=True, drop_last=True)
+	val_loader = DataLoader(validate_set, batch_size=16, shuffle=False, drop_last=True)
 	return train_loader, val_loader
 
 
@@ -157,10 +158,11 @@ def save_training_state(location, model, optimizer, epoch, vloss):
 	            'v_loss'          : vloss, }, location, )
 
 
-def load_training_state(location, model, optimizer):
+def load_training_state(location, model, optimizer, only_model=False):
 	checkpoint = torch.load(location)
 	model.load_state_dict(checkpoint['model_state_dict'])
-	optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+	if not only_model:
+		optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 	epoch = checkpoint['epoch']
 	vloss = checkpoint['v_loss']
 	return model, optimizer, epoch, vloss
@@ -168,7 +170,7 @@ def load_training_state(location, model, optimizer):
 
 def train_codec(lr_min, lr_max, start_new):
 	save_location = 'checkpoints/encode_decode/train_codec_augmented.pth'
-	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64])
+	enc = ImageCodec(64, 128, 48)
 	optimizer = torch.optim.AdamW(
 			[{'params': enc.encoder.parameters()},
 			 {'params': enc.decoder.parameters(), 'weight_decay': 0.0001}],
@@ -193,18 +195,19 @@ def train_codec(lr_min, lr_max, start_new):
 
 def test_and_show():
 	save_location = 'checkpoints/encode_decode/train_codec_augmented.pth'
-	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64])
+	enc = ImageCodec(64, 128, 48)
 	optimizer = torch.optim.SGD(enc.parameters(), lr=0.1)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	if os.path.exists(save_location):
-		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer)
-		AppLog.info(f'Loaded checkpoint from epoch {epoch}')
+		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer, only_model=True)
+		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e}')
 		enc.eval()
 		enc.to(traindevice)
 		with torch.no_grad():
 			image = acquire_image('data/normal_pic.jpg')
 			image = image.unsqueeze(0)
 			image = image.to(traindevice)
+			image = interpolate(image, size=512, mode='bilinear')
 			imagef = (image - 1 / 2) * 2
 			encoded = enc.forward(imagef)
 			encoded = (encoded / 2) + 1 / 2
