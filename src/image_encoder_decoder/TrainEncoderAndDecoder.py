@@ -34,8 +34,8 @@ class ImageFolderDataset(Dataset):
 		return self.transform(image)
 
 def get_data():
-	minsize = 300
-	maxsize = round(minsize * 2)
+	minsize = 256
+	maxsize = round(minsize * 2.5)
 	transform_train = torchvision.transforms.Compose([
 			RandomResize(minsize, maxsize),
 			RandomCrop(minsize), RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5),
