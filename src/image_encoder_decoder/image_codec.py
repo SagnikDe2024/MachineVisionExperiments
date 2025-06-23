@@ -19,35 +19,55 @@ class EncoderLayer1st(nn.Module):
 	def __init__(self, output_channels, kernel_list):
 		super().__init__()
 		input_channels = 3
-		self.conv_layers = ModuleDict()
-		self.norm_layers = ModuleDict()
+		kernels = len(kernel_list)
+		kernel_list.sort()
+		total_weights = kernels * (kernels - 1) / 2
+		self.inactive_path = ModuleDict()
+		self.active_path = ModuleDict()
 		self.activation = nn.Mish()
 		self.final_norm = nn.BatchNorm2d(output_channels)
 		self.final_conv = nn.LazyConv2d(out_channels=output_channels, kernel_size=1, padding=0, bias=False)
 		for i, kernel_size in enumerate(kernel_list):
-			output_channel = output_channels
+			max_expand_channel = output_channels * 1.125
+			inv_r = 1 / 1.125
+			output_channel = round(max_expand_channel * (kernels - i) / total_weights)
 			if kernel_size <= 3:
 				padding = kernel_size // 2
 				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=output_channel,
 				                       kernel_size=kernel_size,
 				                       padding=padding, bias=False)
-				self.conv_layers[f'{i}'] = conv_layer
-				self.norm_layers[f'{i}'] = nn.BatchNorm2d(output_channel)
+				compress_active = nn.Conv2d(in_channels=output_channel,
+				                            out_channels=round(output_channel * inv_r * 5 / 8),
+				                            kernel_size=1, bias=False)
+				compress_inactive = nn.Conv2d(in_channels=output_channel,
+				                              out_channels=round(output_channel * inv_r * 3 / 8),
+				                              kernel_size=1, bias=False)
+				active_seq = nn.Sequential(conv_layer, nn.BatchNorm2d(output_channel), self.activation,
+				                           compress_active)
+				self.active_path[f'{i}'] = active_seq
+				inactive_seq = nn.Sequential(conv_layer, compress_inactive)
+				self.inactive_path[f'{i}'] = inactive_seq
 				continue
-			output_channel = round(output_channels * 9 / kernel_size - 3)
+			output_channel = round(max_expand_channel * (kernels - i) / total_weights)
 			conv1, conv2 = create_sep_kernels(input_channels, output_channel, kernel_size)
 			seq = nn.Sequential(conv1, conv2)
-			self.conv_layers[f'{i}'] = seq
-			self.norm_layers[f'{i}'] = nn.BatchNorm2d(output_channel)
+			compress_active = nn.Conv2d(in_channels=output_channel, out_channels=round(output_channel * inv_r * 5 / 8),
+			                            kernel_size=1, bias=False)
+			compress_inactive = nn.Conv2d(in_channels=output_channel,
+			                              out_channels=round(output_channel * inv_r * 3 / 8),
+			                              kernel_size=1, bias=False)
+			active_seq = nn.Sequential(seq, nn.BatchNorm2d(output_channel), self.activation, compress_active)
+			inactive_seq = nn.Sequential(seq, compress_inactive)
+
+			self.active_path[f'{i}'] = active_seq
+			self.inactive_path[f'{i}'] = inactive_seq
 
 	def forward(self, x):
 		convs = []
-		for conv_layer, bn_layer in zip(self.conv_layers.values(), self.norm_layers.values()):
-			conv: Tensor = conv_layer.forward(x)
-			normed_res = bn_layer.forward(conv)
+		for inactive_path, active_path in zip(self.inactive_path.values(), self.active_path.values()):
+			conv: Tensor = inactive_path.forward(x)
 			convs.append(conv)
-			active_res = self.activation(normed_res)
-
+			active_res = active_path.forward(x)
 			convs.append(active_res)
 		concat_res = torch.cat(convs, dim=1)
 		compress_res = self.final_conv(concat_res)
@@ -90,19 +110,24 @@ class EncoderLayer3Conv(nn.Module):
 
 
 class Encoder(nn.Module):
-	def __init__(self, channels):
+	def __init__(self, ch_in, ch_out, layers, total_downsample=1 / 16):
 		super().__init__()
-		self.layer1 = EncoderLayer1st(channels[0], [1, 3, 5, 7])
-		self.layer2 = EncoderLayer3Conv(channels[0], channels[1], 3, 1)
-		self.layer3 = EncoderLayer3Conv(channels[1], channels[2], 3, 2)
-		self.layer4 = EncoderLayer3Conv(channels[2], channels[3], 3, 3)
-		self.reduce = nn.MaxPool2d(2)
+		ratio = (ch_out / ch_in) ** (1 / (layers - 1))
+		channels = [round(ch_in * ratio ** i) for i in range(layers)]
+		downsample_ratio = total_downsample ** (1 / (layers - 1))
+		self.layers = ModuleDict()
+		for i in range(layers):
+			if i == 0:
+				self.layers[f'{i}'] = EncoderLayer1st(channels[i], [3, 5, 7])
+				continue
+			self.layers[f'{i}'] = EncoderLayer3Conv(channels[i - 1], channels[i], 3, 1)
+		self.reduce = nn.FractionalMaxPool2d(2, output_ratio=downsample_ratio)
 		self.activation = nn.Mish()
 
 	def forward(self, x):
 
 		x_orig_max = torch.amax(torch.abs(x), dim=(1, 2, 3), keepdim=True)
-		for layer in [self.layer1, self.layer2, self.layer3, self.layer4]:
+		for layer in self.layers.values():
 			x = layer(x)
 			x = self.reduce(x)
 		x_abs = torch.abs(x)
@@ -141,16 +166,19 @@ class ImageDecoderLayer(nn.Module):
 
 
 class Decoder(nn.Module):
-	def __init__(self, channels) -> None:
+	def __init__(self, ch_in, ch_out, layers, total_upsample=16) -> None:
 		super().__init__()
+		ratio = (ch_out / ch_in) ** (1 / (layers - 1))
+		channels = [round(ch_in * ratio ** i) for i in range(layers)]
 		channels = [*channels, 3]
 		layers = len(channels) - 1
 		self.layers = layers
+		upsample_ratio = total_upsample ** (1 / (layers - 1))
 		decoder_layers = ModuleDict()
 		for layer in range(layers):
 			ch_in = channels[layer]
 			ch_out = channels[layer + 1]
-			dec_layer = ImageDecoderLayer(ch_in, ch_out, cardinality=(layers - layer))
+			dec_layer = ImageDecoderLayer(ch_in, ch_out, cardinality=(layers - layer), upscale=upsample_ratio)
 			decoder_layers[f'{layer}'] = dec_layer
 
 		self.decoder_layers = decoder_layers
@@ -176,10 +204,10 @@ class Decoder(nn.Module):
 
 
 class ImageCodec(nn.Module):
-	def __init__(self, enc_channels, dec_channels):
+	def __init__(self, enc_chin, latent_channels, dec_chout):
 		super().__init__()
-		self.encoder = Encoder(enc_channels)
-		self.decoder = Decoder(dec_channels)
+		self.encoder = Encoder(enc_chin, latent_channels, layers=4, total_downsample=1 / 16)
+		self.decoder = Decoder(latent_channels, dec_chout, layers=4, total_upsample=16)
 
 	def forward(self, x):
 		latent, maxes = self.encoder.forward(x)
@@ -192,5 +220,5 @@ if __name__ == '__main__':
 	# chn =[64, 128, 192, 256]
 	# chn.reverse()
 	# dec = Encoder(chn)
-	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64])
+	enc = ImageCodec(64, 256, 64)
 	summary(enc, [(11, 3, 288, 288)])
