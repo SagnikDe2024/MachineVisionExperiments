@@ -175,8 +175,7 @@ def train_codec(lr_min, lr_max, start_new):
 	train_loader, val_loader = get_data()
 	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p: save_training_state(save_location, enc_p,
 	                                                                                    optimizer_p, epoch_p, vloss_p)
-	scheduler_fn = lambda optim, epoch_p: CyclicLR(optim, base_lr=learning_rate, max_lr=0.1, mode='triangular2',
-	                                               last_epoch=epoch_p)
+
 	if os.path.exists(save_location) and not start_new:
 		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer)
 		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e}')
@@ -191,9 +190,9 @@ def train_codec(lr_min, lr_max, start_new):
 
 
 def test_and_show():
-	save_location = 'checkpoints/encode_decode/train_codec.pth'
-	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64, 3])
-	optimizer = torch.optim.AdamW(enc.parameters(), lr=0.1)
+	save_location = 'checkpoints/encode_decode/train_codec_augmented.pth'
+	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64])
+	optimizer = torch.optim.SGD(enc.parameters(), lr=0.1)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	if os.path.exists(save_location):
 		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer)
