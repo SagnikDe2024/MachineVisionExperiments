@@ -110,18 +110,17 @@ class TrainEncoderAndDecoder:
 
 	def train_and_evaluate(self, train_loader, val_loader):
 		AppLog.info(f'Training from {self.current_epoch} to {self.ending_epoch} epochs.')
-		epoch = self.current_epoch
-		while epoch < self.ending_epoch:
+		while self.current_epoch < self.ending_epoch:
 			train_loss = self.train_one_epoch(train_loader)
 			val_loss = self.evaluate(val_loader)
 			# self.scheduler.step(val_loss,epoch=epoch)
 			AppLog.info(
-					f'Epoch {epoch + 1}: Training loss = {train_loss}, Validation Loss = {val_loss}, '
+					f'Epoch {self.current_epoch + 1}: Training loss = {train_loss:.3e}, Validation Loss = {val_loss:.3e}, '
 					f'lr = {self.scheduler.get_last_lr()}')
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
-				self.save_training_fn(self.model_orig, self.optimizer, epoch, val_loss)
-			epoch += 1
+				self.save_training_fn(self.model_orig, self.optimizer, self.current_epoch, val_loss)
+			self.current_epoch += 1
 
 
 def prepare_data():
