@@ -164,13 +164,13 @@ def load_training_state(location, model, optimizer):
 	return model, optimizer, epoch, vloss
 
 
-def train_codec(learning_rate, start_new):
+def train_codec(lr_min, lr_max, start_new):
 	save_location = 'checkpoints/encode_decode/train_codec_augmented.pth'
-	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64, 3])
-	optimizer = torch.optim.Adam(
+	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64])
+	optimizer = torch.optim.AdamW(
 			[{'params': enc.encoder.parameters()},
-			 {'params': enc.decoder.parameters(), 'weight_decay': 0.001}],
-			lr=learning_rate)
+			 {'params': enc.decoder.parameters(), 'weight_decay': 0.0001}],
+			lr=lr_min)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	train_loader, val_loader = get_data()
 	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p: save_training_state(save_location, enc_p,
@@ -179,11 +179,13 @@ def train_codec(learning_rate, start_new):
 	                                               last_epoch=epoch_p)
 	if os.path.exists(save_location) and not start_new:
 		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer)
-		AppLog.info(f'Loaded checkpoint from epoch {epoch}')
+		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e}')
+		scheduler_fn = lambda optim : CyclicLR(optim, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
 		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler_fn, save_training_fn, epoch, 30, vloss)
 		trainer.train_and_evaluate(train_loader, val_loader)
 	else:
-		AppLog.info(f'Training from scratch. Using learning rate {learning_rate} and device {traindevice}')
+		AppLog.info(f'Training from scratch. Using learning rate {lr_min} and device {traindevice}')
+		scheduler_fn = lambda optim : CyclicLR(optim, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
 		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler_fn, save_training_fn, 0, 30)
 		trainer.train_and_evaluate(train_loader, val_loader)
 
@@ -213,10 +215,11 @@ def test_and_show():
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Train encoder and decoder model')
-	parser.add_argument('--learning-rate', type=float, default=1e-2, help='Learning rate for training')
+	parser.add_argument('--lr-min', type=float, default=1e-3, help='Min learning rate for training')
+	parser.add_argument('--lr-max', type=float, default=1e-2, help='Max learning rate for training')
 	parser.add_argument('--start-new', type=bool, default=False, help='Start new training instead of resuming')
 	args = parser.parse_args()
 	# prepare_data()
-	train_codec(args.learning_rate, args.start_new)
+	train_codec(args.lr_min,args.lr_max, args.start_new)
 	# test_and_show()
 	AppLog.shut_down()
