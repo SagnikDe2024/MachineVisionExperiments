@@ -34,7 +34,7 @@ class EncoderLayer1st(nn.Module):
 				self.conv_layers[f'{i}'] = conv_layer
 				self.norm_layers[f'{i}'] = nn.BatchNorm2d(output_channel)
 				continue
-			output_channel = round(output_channels * 3 / kernel_size)
+			output_channel = round(output_channels * 9 / kernel_size - 3)
 			conv1, conv2 = create_sep_kernels(input_channels, output_channel, kernel_size)
 			seq = nn.Sequential(conv1, conv2)
 			self.conv_layers[f'{i}'] = seq
@@ -143,6 +143,7 @@ class ImageDecoderLayer(nn.Module):
 class Decoder(nn.Module):
 	def __init__(self, channels) -> None:
 		super().__init__()
+		channels = [*channels, 3]
 		layers = len(channels) - 1
 		self.layers = layers
 		decoder_layers = ModuleDict()
@@ -158,8 +159,7 @@ class Decoder(nn.Module):
 	def set_size(self, h, w):
 		self.size = [h, w]
 
-	def forward(self, coded_latent):
-		latent_z, maxes = coded_latent
+	def forward(self, latent_z, maxes):
 		[h, w] = self.size
 
 		z_m = latent_z
@@ -184,10 +184,13 @@ class ImageCodec(nn.Module):
 	def forward(self, x):
 		latent, maxes = self.encoder.forward(x)
 		self.decoder.set_size(x.shape[2], x.shape[3])
-		final_res = self.decoder.forward((latent, maxes))
+		final_res = self.decoder.forward(latent, maxes)
 		return final_res
 
 
 if __name__ == '__main__':
-	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64, 3])
-	summary(enc, input_size=(1, 3, 1024, 1024))
+	# chn =[64, 128, 192, 256]
+	# chn.reverse()
+	# dec = Encoder(chn)
+	enc = ImageCodec([64, 128, 192, 256], [256, 192, 128, 64])
+	summary(enc, [(11, 3, 288, 288)])
