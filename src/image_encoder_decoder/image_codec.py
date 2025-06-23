@@ -25,38 +25,34 @@ class EncoderLayer1st(nn.Module):
 		self.inactive_path = ModuleDict()
 		self.active_path = ModuleDict()
 		self.activation = nn.Mish()
-		self.final_norm = nn.BatchNorm2d(output_channels)
-		self.final_conv = nn.LazyConv2d(out_channels=output_channels, kernel_size=1, padding=0, bias=False)
+		o_ch = output_channels
+		self.final_norm = nn.BatchNorm2d(o_ch)
+		self.final_conv = nn.LazyConv2d(out_channels=o_ch, kernel_size=1, padding=0, bias=False)
 		for i, kernel_size in enumerate(kernel_list):
-			max_expand_channel = output_channels * 1.125
-			inv_r = 1 / 1.125
-			output_channel = round(max_expand_channel * (kernels - i) / total_weights)
+			max_expand_channel = o_ch * 1
+			output_channel_compress = max_expand_channel * (kernels - i) / total_weights
+			comp_active = round(output_channel_compress * 5 / 8)
+			comp_inactive = round(output_channel_compress * 3 / 8)
+			compress_active = nn.Conv2d(in_channels=o_ch, out_channels=comp_active,
+			                            kernel_size=1, bias=False)
+			compress_inactive = nn.Conv2d(in_channels=o_ch, out_channels=comp_inactive,
+			                              kernel_size=1, bias=False)
+
+			padding = kernel_size // 2
 			if kernel_size <= 3:
-				padding = kernel_size // 2
-				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=output_channel,
+				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=o_ch,
 				                       kernel_size=kernel_size,
 				                       padding=padding, bias=False)
-				compress_active = nn.Conv2d(in_channels=output_channel,
-				                            out_channels=round(output_channel * inv_r * 5 / 8),
-				                            kernel_size=1, bias=False)
-				compress_inactive = nn.Conv2d(in_channels=output_channel,
-				                              out_channels=round(output_channel * inv_r * 3 / 8),
-				                              kernel_size=1, bias=False)
-				active_seq = nn.Sequential(conv_layer, nn.BatchNorm2d(output_channel), self.activation,
+
+				active_seq = nn.Sequential(conv_layer, nn.BatchNorm2d(o_ch), self.activation,
 				                           compress_active)
 				self.active_path[f'{i}'] = active_seq
 				inactive_seq = nn.Sequential(conv_layer, compress_inactive)
 				self.inactive_path[f'{i}'] = inactive_seq
 				continue
-			output_channel = round(max_expand_channel * (kernels - i) / total_weights)
-			conv1, conv2 = create_sep_kernels(input_channels, output_channel, kernel_size)
+			conv1, conv2 = create_sep_kernels(input_channels, o_ch, kernel_size)
 			seq = nn.Sequential(conv1, conv2)
-			compress_active = nn.Conv2d(in_channels=output_channel, out_channels=round(output_channel * inv_r * 5 / 8),
-			                            kernel_size=1, bias=False)
-			compress_inactive = nn.Conv2d(in_channels=output_channel,
-			                              out_channels=round(output_channel * inv_r * 3 / 8),
-			                              kernel_size=1, bias=False)
-			active_seq = nn.Sequential(seq, nn.BatchNorm2d(output_channel), self.activation, compress_active)
+			active_seq = nn.Sequential(seq, nn.BatchNorm2d(o_ch), self.activation, compress_active)
 			inactive_seq = nn.Sequential(seq, compress_inactive)
 
 			self.active_path[f'{i}'] = active_seq
@@ -166,7 +162,7 @@ class ImageDecoderLayer(nn.Module):
 
 
 class Decoder(nn.Module):
-	def __init__(self, ch_in, ch_out, layers, total_upsample=16) -> None:
+	def __init__(self, ch_in, ch_out, layers, total_upsample=16.0) -> None:
 		super().__init__()
 		ratio = (ch_out / ch_in) ** (1 / (layers - 1))
 		channels = [round(ch_in * ratio ** i) for i in range(layers)]
@@ -204,10 +200,10 @@ class Decoder(nn.Module):
 
 
 class ImageCodec(nn.Module):
-	def __init__(self, enc_chin, latent_channels, dec_chout):
+	def __init__(self, enc_chin, latent_channels, dec_chout, enc_layers=4, dec_layers=4, downsample=1 / 16):
 		super().__init__()
-		self.encoder = Encoder(enc_chin, latent_channels, layers=4, total_downsample=1 / 16)
-		self.decoder = Decoder(latent_channels, dec_chout, layers=4, total_upsample=16)
+		self.encoder = Encoder(enc_chin, latent_channels, layers=enc_layers, total_downsample=downsample)
+		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers, total_upsample=(1 / downsample))
 
 	def forward(self, x):
 		latent, maxes = self.encoder.forward(x)
@@ -220,5 +216,5 @@ if __name__ == '__main__':
 	# chn =[64, 128, 192, 256]
 	# chn.reverse()
 	# dec = Encoder(chn)
-	enc = ImageCodec(64, 256, 64)
+	enc = ImageCodec(64, 256, 64, 6, 5)
 	summary(enc, [(11, 3, 288, 288)])
