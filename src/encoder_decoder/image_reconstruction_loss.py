@@ -107,6 +107,33 @@ class ReconstructionLoss(nn.Module):
 		return self.loss1(inferred_image, target_image)
 
 
+class ReconstructionLossRelative(nn.Module):
+	def __init__(self):
+		super().__init__()
+
+		self.loss2 = nn.MSELoss()
+		self.dummy_param = nn.Parameter(torch.empty(0))
+		self.luminosity = torch.tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1)
+
+	def forward(self, inferred_image, target_image):
+		weight = self.get_weight(target_image)
+		weight = (weight * 3 + 1) / 4
+		return self.loss2(inferred_image * weight, target_image * weight)
+
+	def get_weight(self, target_image):
+		this_dev = self.dummy_param.device
+		self.luminosity = self.luminosity.to(this_dev)
+		min_max = torch.aminmax(target_image, dim=1, keepdim=True)
+		inv_sat = min_max.min / min_max.max
+		res = torch.nan_to_num(inv_sat, nan=0.0, posinf=0.0, neginf=0.0)
+		lum = torch.sum(target_image * self.luminosity, dim=1, keepdim=True)
+		num = res + lum
+		denom = res * lum + res + lum
+		weight = num / denom
+		weight = torch.nan_to_num(weight, nan=1, posinf=1, neginf=1)
+		return weight
+
+
 class VisualInformationFidelityLoss(nn.Module):
 	def __init__(self):
 		super().__init__()
