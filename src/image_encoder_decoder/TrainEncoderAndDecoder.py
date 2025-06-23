@@ -67,7 +67,7 @@ class TrainEncoderAndDecoder:
 		self.trained_one_batch = False
 		# self.loss_func = torch.compile(MultiscalePerceptualLoss(max_downsample=4), mode="default").to(self.device)
 		self.loss_func = torch.compile(ReconstructionLoss(), mode="default").to(self.device)
-		self.scheduler = cycle_sch(self.optimizer, self.current_epoch)
+		self.scheduler = cycle_sch(self.optimizer)
 
 	# self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=3,
 	#                                                 min_lr=1e-8)
