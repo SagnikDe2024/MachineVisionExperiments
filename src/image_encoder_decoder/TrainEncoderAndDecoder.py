@@ -76,6 +76,7 @@ class TrainEncoderAndDecoder:
 	def train_one_epoch(self, train_loader):
 		self.model.train(True)
 		tloss = 0.0
+		pics_seen = 0
 		for batch_idx, data in enumerate(train_loader):
 			data = data.to(self.device)
 			data = (data - 1 / 2) * 2
@@ -84,17 +85,19 @@ class TrainEncoderAndDecoder:
 			result = result / 2 + 1 / 2
 			loss = self.loss_func.forward(result, data)
 			tloss += loss.item()
+			pics_seen += data.shape[0]
 			loss.backward()
 			self.optimizer.step()
 			self.scheduler.step()
 			if not self.trained_one_batch:
 				self.trained_one_batch = True
 				AppLog.info(f'Training loss: {tloss}, batch: {batch_idx + 1}')
-		return tloss
+		return tloss/pics_seen
 
 	def evaluate(self, val_loader):
 		self.model.eval()
 		vloss = 0.0
+		pics_seen = 0
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
 				data = data.to(self.device)
@@ -102,7 +105,8 @@ class TrainEncoderAndDecoder:
 				result = self.model(data)
 				result = result / 2 + 1 / 2
 				vloss += self.loss_func(result, data).item()
-		return vloss
+				pics_seen += data.shape[0]
+		return vloss/pics_seen
 
 	def train_and_evaluate(self, train_loader, val_loader):
 		AppLog.info(f'Training from {self.current_epoch} to {self.ending_epoch} epochs.')
