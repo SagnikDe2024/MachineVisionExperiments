@@ -81,21 +81,25 @@ class EncoderLayer3Conv(nn.Module):
 		input_per_kernel = round(input_channels / total_groups)
 		output_per_kernel = round(output_channels / total_groups)
 		par_kernels = ModuleDict()
+		unactive_kernels = ModuleDict()
 		for i in range(1, kernels + 1):
 			for j in range(cardinality):
 				conv_lower = nn.Conv2d(in_channels=input_channels, out_channels=input_per_kernel, kernel_size=1,
 				                       padding=0, bias=False)
 				conv_layer = nn.Conv2d(in_channels=input_per_kernel, out_channels=output_per_kernel, kernel_size=3,
 				                       padding=i, bias=False, dilation=i)
+				unactive = nn.Sequential(conv_lower, conv_layer)
 				all_ops = nn.Sequential(conv_lower, conv_layer, nn.BatchNorm2d(output_per_kernel), nn.Mish())
 				par_kernels[f'{i}_{j}'] = all_ops
+				unactive_kernels[f'{i}_{j}'] = unactive
+		self.inactive_kernels = unactive_kernels
 		self.all_kernels = par_kernels
 		self.final_norm = nn.BatchNorm2d(output_channels)
 
 	def forward(self, x):
 		evaluated = []
-		for kernel_name, kernel in self.all_kernels.items():
-			r = kernel(x)
+		for inc, act in zip(self.inactive_kernels.values(), self.all_kernels.values()):
+			r = inc(x) + act(x)
 			evaluated.append(r)
 		evaluated.append(x)
 		concat_res = torch.cat(evaluated, dim=1)
@@ -116,19 +120,18 @@ class Encoder(nn.Module):
 			if i == 0:
 				self.layers[f'{i}'] = EncoderLayer1st(channels[i], [3, 5, 7])
 				continue
-			self.layers[f'{i}'] = EncoderLayer3Conv(channels[i - 1], channels[i], 3, 1)
+			self.layers[f'{i}'] = EncoderLayer3Conv(channels[i - 1], channels[i], 1, max(1, layers // 3))
 		self.reduce = nn.FractionalMaxPool2d(2, output_ratio=downsample_ratio)
 		self.activation = nn.Mish()
 
 	def forward(self, x):
-
-		x_orig_max = torch.amax(torch.abs(x), dim=(1, 2, 3), keepdim=True)
+		x = (x - 0.5) * 2
 		for layer in self.layers.values():
 			x = layer(x)
 			x = self.reduce(x)
-		x_abs = torch.abs(x)
-		x_max = torch.amax(x_abs, dim=(1, 2, 3), keepdim=True)
-		return x / x_max, x_orig_max
+		sqr = torch.pow(x, 2)
+		constrained = (1 / 3 + 1) * sqr / (sqr / 3 + 1)
+		return constrained
 
 
 class ImageDecoderLayer(nn.Module):
@@ -174,29 +177,29 @@ class Decoder(nn.Module):
 		for layer in range(layers):
 			ch_in = channels[layer]
 			ch_out = channels[layer + 1]
-			dec_layer = ImageDecoderLayer(ch_in, ch_out, cardinality=(layers - layer), upscale=upsample_ratio)
+			dec_layer = ImageDecoderLayer(ch_in, ch_out, cardinality=max(1, (layers - layer) // 3),
+			                              upscale=upsample_ratio)
 			decoder_layers[f'{layer}'] = dec_layer
 
 		self.decoder_layers = decoder_layers
 		self.size = [128, 128]
+		self.last_activation = nn.Sigmoid()
 
 	def set_size(self, h, w):
 		self.size = [h, w]
 
-	def forward(self, latent_z, maxes):
+	def forward(self, latent_z):
 		[h, w] = self.size
 
 		z_m = latent_z
-		for dec_layer in self.decoder_layers.values():
+
+		for i, dec_layer in enumerate(self.decoder_layers.values()):
 			z_m, unactivated_z_m = dec_layer.forward(z_m)
+			z_m = z_m + unactivated_z_m
 
 		x = interpolate(z_m, size=(h, w), mode='bilinear', align_corners=False)
-		x_abs = torch.abs(x)
-		x_max = torch.amax(x_abs, dim=(1, 2, 3), keepdim=True)
-		x_normed = x / x_max
-		x_max_new = torch.mul(x_normed, maxes)
 
-		return x_max_new
+		return self.last_activation(x) * (256 / 255)
 
 
 class ImageCodec(nn.Module):
@@ -206,9 +209,9 @@ class ImageCodec(nn.Module):
 		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers, total_upsample=(1 / downsample))
 
 	def forward(self, x):
-		latent, maxes = self.encoder.forward(x)
+		latent = self.encoder.forward(x)
 		self.decoder.set_size(x.shape[2], x.shape[3])
-		final_res = self.decoder.forward(latent, maxes)
+		final_res = self.decoder.forward(latent)
 		return final_res
 
 
@@ -216,5 +219,5 @@ if __name__ == '__main__':
 	# chn =[64, 128, 192, 256]
 	# chn.reverse()
 	# dec = Encoder(chn)
-	enc = ImageCodec(64, 256, 64, 6, 5)
-	summary(enc, [(11, 3, 288, 288)])
+	enc = ImageCodec(64, 256, 64, 8, 6)
+	summary(enc, [(12, 3, 288, 288)])
