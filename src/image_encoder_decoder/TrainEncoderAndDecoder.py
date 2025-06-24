@@ -57,17 +57,19 @@ def get_data(batch_size=16, minsize=272):
 class TrainEncoderAndDecoder:
 	def __init__(self, model, optimizer, train_device, cycle_sch, save_training_fn, starting_epoch, ending_epoch,
 	             vloss=float('inf')):
+		self.device = train_device
 		self.model_orig = model
+		self.model = torch.compile(self.model_orig, mode="default").to(self.device)
 		self.save_training_fn = save_training_fn
 		self.optimizer = optimizer
-		self.device = train_device
+
 		self.current_epoch = starting_epoch
 		self.ending_epoch = ending_epoch
 		self.best_vloss = vloss
-		self.model = torch.compile(self.model_orig, mode="default").to(self.device)
+
 		self.trained_one_batch = False
 		# self.loss_func = torch.compile(MultiscalePerceptualLoss(max_downsample=4), mode="default").to(self.device)
-		self.loss_func = torch.compile(ReconstructionLoss(), mode="default").to(self.device)
+		self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
 		self.scheduler = cycle_sch(self.optimizer)
 
 	# self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=3,
@@ -117,7 +119,7 @@ class TrainEncoderAndDecoder:
 					f'lr = {self.scheduler.get_last_lr()}')
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
-				self.save_training_fn(self.model_orig, self.optimizer, self.current_epoch, val_loss)
+				self.save_training_fn(self.model_orig, self.optimizer, self.current_epoch + 1, val_loss)
 			self.current_epoch += 1
 
 
@@ -204,13 +206,11 @@ def test_and_show():
 		enc.eval()
 		enc.to(traindevice)
 		with torch.no_grad():
-			image = acquire_image('data/normal_pic.jpg')
+			image = acquire_image('data/CC/train/image_1000.jpeg')
 			image = image.unsqueeze(0)
 			image = image.to(traindevice)
-			image = interpolate(image, size=512, mode='bilinear')
-			imagef = (image - 1 / 2) * 2
-			encoded = enc.forward(imagef)
-			encoded = (encoded / 2) + 1 / 2
+			image = resize(image, [512], InterpolationMode.BILINEAR, antialias=True)
+			encoded = enc.forward(image)
 			image_pil = torchvision.transforms.ToPILImage()(image.squeeze(0))
 			encoded_pil = torchvision.transforms.ToPILImage()(encoded.squeeze(0))
 			image_pil.show()
@@ -225,7 +225,6 @@ if __name__ == '__main__':
 	parser.add_argument('--size', type=int, default=300, help='Image size for training and validation')
 	parser.add_argument('--start-new', type=bool, default=False, help='Start new training instead of resuming')
 	args = parser.parse_args()
-	# prepare_data()
-	train_codec(args.lr_min, args.lr_max, args.start_new)
+	train_codec(args.lr_min, args.lr_max, args.batch_size, args.size, args.start_new)
 	# test_and_show()
 	AppLog.shut_down()
