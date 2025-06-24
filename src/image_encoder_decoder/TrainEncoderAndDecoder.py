@@ -7,15 +7,15 @@ import pandas as pd
 import torch
 import torchvision
 from PIL import Image
-from torch.nn.functional import interpolate
 from torch.optim.lr_scheduler import CyclicLR
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import InterpolationMode
+from torchvision.transforms.functional import resize
 from torchvision.transforms.v2 import CenterCrop, RandomCrop, RandomHorizontalFlip, RandomResize, RandomVerticalFlip, \
 	Resize
 
 from src.common.common_utils import AppLog, acquire_image
-from src.encoder_decoder.image_reconstruction_loss import ReconstructionLoss
+from src.encoder_decoder.image_reconstruction_loss import ReconstructionLossRelative
 from src.image_encoder_decoder.image_codec import ImageCodec
 
 
@@ -35,8 +35,7 @@ class ImageFolderDataset(Dataset):
 		return self.transform(image)
 
 
-def get_data():
-	minsize = 320
+def get_data(batch_size=16, minsize=272):
 	maxsize = round(minsize * 2.5)
 	transform_train = torchvision.transforms.Compose([
 			RandomResize(minsize, maxsize),
@@ -50,8 +49,8 @@ def get_data():
 	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform_train)
 	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform_validate)
 
-	train_loader = DataLoader(train_set, batch_size=16, shuffle=True, drop_last=True)
-	val_loader = DataLoader(validate_set, batch_size=16, shuffle=False, drop_last=True)
+	train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
+	val_loader = DataLoader(validate_set, batch_size=batch_size, shuffle=False, drop_last=True)
 	return train_loader, val_loader
 
 
@@ -80,10 +79,8 @@ class TrainEncoderAndDecoder:
 		pics_seen = 0
 		for batch_idx, data in enumerate(train_loader):
 			data = data.to(self.device)
-			data = (data - 1 / 2) * 2
 			self.optimizer.zero_grad()
 			result = self.model(data)
-			result = result / 2 + 1 / 2
 			loss = self.loss_func.forward(result, data)
 			tloss += loss.item()
 			pics_seen += data.shape[0]
@@ -102,9 +99,7 @@ class TrainEncoderAndDecoder:
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
 				data = data.to(self.device)
-				data = (data - 1 / 2) * 2
 				result = self.model(data)
-				result = result / 2 + 1 / 2
 				vloss += self.loss_func(result, data).item()
 				pics_seen += data.shape[0]
 		return vloss / pics_seen
@@ -168,15 +163,20 @@ def load_training_state(location, model, optimizer, only_model=False):
 	return model, optimizer, epoch, vloss
 
 
-def train_codec(lr_min, lr_max, start_new):
+def train_codec(lr_min, lr_max, batch_size, size, start_new):
 	save_location = 'checkpoints/encode_decode/train_codec_augmented.pth'
-	enc = ImageCodec(64, 128, 48)
+	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
+	enc = ImageCodec(64, 256, 64, enc_layers=8, dec_layers=6).to(traindevice)
+	# get_optim = lambda model :  torch.optim.AdamW(
+	# 		[{'params': model.encoder.parameters()},
+	# 		 {'params': model.decoder.parameters(), 'weight_decay': 0.0001}],
+	# 		lr=lr_min)
 	optimizer = torch.optim.AdamW(
 			[{'params': enc.encoder.parameters()},
 			 {'params': enc.decoder.parameters(), 'weight_decay': 0.0001}],
 			lr=lr_min)
-	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
-	train_loader, val_loader = get_data()
+
+	train_loader, val_loader = get_data(batch_size=batch_size, minsize=size)
 	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p: save_training_state(save_location, enc_p,
 	                                                                                    optimizer_p, epoch_p, vloss_p)
 
@@ -195,7 +195,7 @@ def train_codec(lr_min, lr_max, start_new):
 
 def test_and_show():
 	save_location = 'checkpoints/encode_decode/train_codec_augmented.pth'
-	enc = ImageCodec(64, 128, 48)
+	enc = ImageCodec(64, 256, 64, enc_layers=8, dec_layers=6)
 	optimizer = torch.optim.SGD(enc.parameters(), lr=0.1)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	if os.path.exists(save_location):
@@ -221,6 +221,8 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Train encoder and decoder model')
 	parser.add_argument('--lr-min', type=float, default=1e-3, help='Min learning rate for training')
 	parser.add_argument('--lr-max', type=float, default=1e-2, help='Max learning rate for training')
+	parser.add_argument('--batch-size', type=int, default=12, help='Batch size for training')
+	parser.add_argument('--size', type=int, default=300, help='Image size for training and validation')
 	parser.add_argument('--start-new', type=bool, default=False, help='Start new training instead of resuming')
 	args = parser.parse_args()
 	# prepare_data()
