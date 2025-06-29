@@ -26,7 +26,7 @@ class EncoderLayer1st(nn.Module):
 
 		self.active_path = ModuleDict()
 		self.activation = nn.Mish()
-		o_ch = output_channels
+		o_ch = output_channels*3/4
 		kernel_out = round(o_ch * 3 / kernels)
 
 		for i, kernel_size in enumerate(kernel_list):
@@ -294,4 +294,4 @@ if __name__ == '__main__':
 	# enc = Encoder(64, 256, 6, 1 / 16)
 	enc = ImageCodec(64, 256, 64, 8, 6)
 	# AppLog.info(f'Encoder : {enc}')
-	summary(enc, [(12, 3, 256, 288)])
+	summary(enc, [(16, 3, 272, 272)])
