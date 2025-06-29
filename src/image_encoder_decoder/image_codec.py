@@ -1,8 +1,10 @@
 import torch
 from torch import Tensor, nn
-from torch.nn import ModuleDict
+from torch.nn import ModuleDict, functional as F
 from torch.nn.functional import interpolate
 from torchinfo import summary
+
+from src.common.common_utils import AppLog, Ratio, generate_separated_kernels
 
 
 def create_sep_kernels(input_channels, output_channels, kernel_size):
@@ -21,56 +23,43 @@ class EncoderLayer1st(nn.Module):
 		input_channels = 3
 		kernels = len(kernel_list)
 		kernel_list.sort()
-		total_weights = kernels * (kernels - 1) / 2
-		self.inactive_path = ModuleDict()
+
 		self.active_path = ModuleDict()
 		self.activation = nn.Mish()
 		o_ch = output_channels
-		self.final_norm = nn.BatchNorm2d(o_ch)
-		self.final_conv = nn.LazyConv2d(out_channels=o_ch, kernel_size=1, padding=0, bias=False)
+		kernel_out = round(o_ch * 3 / kernels)
+
 		for i, kernel_size in enumerate(kernel_list):
-			max_expand_channel = o_ch * 1
-			output_channel_compress = max_expand_channel * (kernels - i) / total_weights
-			comp_active = round(output_channel_compress * 5 / 8)
-			comp_inactive = round(output_channel_compress * 3 / 8)
-			compress_active = nn.Conv2d(in_channels=o_ch, out_channels=comp_active,
-			                            kernel_size=1, bias=False)
-			compress_inactive = nn.Conv2d(in_channels=o_ch, out_channels=comp_inactive,
-			                              kernel_size=1, bias=False)
 
 			padding = kernel_size // 2
 			if kernel_size <= 3:
-				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=o_ch,
+				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=kernel_out,
 				                       kernel_size=kernel_size,
 				                       padding=padding, bias=False)
 
-				active_seq = nn.Sequential(conv_layer, nn.BatchNorm2d(o_ch), self.activation,
-				                           compress_active)
+				active_seq = nn.Sequential(conv_layer, nn.BatchNorm2d(kernel_out), self.activation)
 				self.active_path[f'{i}'] = active_seq
-				inactive_seq = nn.Sequential(conv_layer, compress_inactive)
-				self.inactive_path[f'{i}'] = inactive_seq
 				continue
-			conv1, conv2 = create_sep_kernels(input_channels, o_ch, kernel_size)
-			seq = nn.Sequential(conv1, conv2)
-			active_seq = nn.Sequential(seq, nn.BatchNorm2d(o_ch), self.activation, compress_active)
-			inactive_seq = nn.Sequential(seq, compress_inactive)
+			conv1, conv2 = generate_separated_kernels(input_channels, kernel_out, kernel_size,
+			                                          Ratio((2 / kernel_size)), switch=False)
+			active_seq = nn.Sequential(conv1, conv2, nn.BatchNorm2d(kernel_out), self.activation)
 
 			self.active_path[f'{i}'] = active_seq
-			self.inactive_path[f'{i}'] = inactive_seq
-			self.downsample = nn.FractionalMaxPool2d(2, output_ratio=downsample_ratio)
+
+			self.h = -1
+			self.w = -1
+
+	def set_size(self, h, w):
+		self.h = h
+		self.w = w
 
 	def forward(self, x):
 		convs = []
-		for inactive_path, active_path in zip(self.inactive_path.values(), self.active_path.values()):
-			conv: Tensor = inactive_path.forward(x)
-			convs.append(conv)
+		for active_path in self.active_path.values():
 			active_res = active_path.forward(x)
 			convs.append(active_res)
 		concat_res = torch.cat(convs, dim=1)
-		compress_res = self.final_conv(concat_res)
-		normed_res = self.final_norm(compress_res)
-		active_res = self.activation(normed_res)
-		return self.downsample(active_res)
+		return F.fractional_max_pool2d(concat_res, kernel_size=2, output_size=[self.h, self.w])
 
 
 class EncoderBlockWithPassthrough(nn.Module):
@@ -120,13 +109,10 @@ class EncoderLayer3Conv(nn.Module):
 
 
 class EncoderLayerGrouped(nn.Module):
-	def __init__(self, input_channels, output_channels, num_kernels, transition_layer_channels, downsample_ratio=1 / 2,
-	             groups=1):
+	def __init__(self, input_channels, output_channels, num_kernels, transition_layer_channels, groups=1):
 		super().__init__()
 		self.inp_channel_ranges = [round(input_channels * i / groups) for i in range(groups + 1)]
 		self.out_channel_ranges = [round(output_channels * i / groups) for i in range(groups + 1)]
-		self.downsample_active = nn.FractionalMaxPool2d(2, output_ratio=downsample_ratio)
-		self.downsample_inactive = nn.UpsamplingBilinear2d(scale_factor=downsample_ratio)
 		self.compress_input = nn.LazyConv2d(out_channels=input_channels, kernel_size=1, padding=0, bias=False)
 		self.compress_input_for_concat_prev = nn.LazyConv2d(out_channels=transition_layer_channels, kernel_size=1,
 		                                                    padding=0, bias=False)
@@ -137,6 +123,12 @@ class EncoderLayerGrouped(nn.Module):
 			output_channel_per_subblock = self.out_channel_ranges[i + 1] - self.out_channel_ranges[i]
 			self.encoder_subblocks[f'group{i}'] = EncoderLayer3Conv(input_channel_per_subblock,
 			                                                        output_channel_per_subblock, num_kernels)
+			self.h = -1
+			self.w = -1
+
+	def set_size(self, h, w):
+		self.h = h
+		self.w = w
 
 	def forward(self, x, prev_layers):
 		x_compressed = self.compress_input_for_concat_prev(x)
@@ -149,8 +141,8 @@ class EncoderLayerGrouped(nn.Module):
 			evaluated.append(activated)
 		activated = torch.cat(evaluated, dim=1)
 		inactive = torch.cat([x_compressed, prev_layers], dim=1)
-		down_sample_active = self.downsample_active(activated)
-		down_sample_inactive = self.downsample_inactive(inactive)
+		down_sample_active = F.fractional_max_pool2d(activated, kernel_size=2, output_size=[self.h, self.w])
+		down_sample_inactive = F.interpolate(inactive, size=[self.h, self.w], mode='bilinear')
 
 		return down_sample_active, down_sample_inactive
 
@@ -161,27 +153,33 @@ class Encoder(nn.Module):
 		ratio = (ch_out / ch_in) ** (1 / (layers - 1))
 		channels = [round(ch_in * ratio ** i) for i in range(layers)]
 		layer1_compute = channels[0] * channels[1]
-		downsample_ratio = total_downsample ** (1 / (layers - 1))
+		downsample_ratio = total_downsample ** (1 / layers)
 		self.layers = ModuleDict()
 		self.transition_layers = ModuleDict()
 		self.downsample_input = nn.UpsamplingBilinear2d(scale_factor=downsample_ratio)
 		for i in range(layers):
 			if i == 0:
-				self.layers[f'{i}'] = EncoderLayer1st(channels[i], [3, 5, 7], downsample_ratio=downsample_ratio)
+				self.layers[f'{i}'] = EncoderLayer1st(channels[i], [1, 3, 5, 7, 9])
 				continue
 			compute_cost = channels[i - 1] * channels[i] / layer1_compute
 			groups = round(compute_cost ** 0.5)
 			AppLog.info(f'Proportional compute load {compute_cost:.1f}')
 			self.layers[f'{i}'] = EncoderLayerGrouped(channels[i - 1], channels[i], 3, 10,
-			                                          downsample_ratio=downsample_ratio, groups=groups)
-
+			                                          groups=groups)
+		self.layer_count = layers
 		self.activation = nn.Mish()
 		self.ch_out = ch_out
+		self.downsample_ratio = downsample_ratio
 
 	def forward(self, x):
 		x = (x - 0.5) * 2
+		_, _, h, w = x.shape
+		ds = self.downsample_ratio
+		sizes_down = [(round(h * (ds ** layer)), round(w * (ds ** layer))) for layer in
+		              range(1, self.layer_count + 1)]
 		inputs = torch.empty((x.shape[0], 0, x.shape[2], x.shape[3])).to(x.device)
 		for i, layer in enumerate(self.layers.values()):
+			layer.set_size(sizes_down[i][0], sizes_down[i][1])
 			if i == 0:
 				x = layer(x)
 				inputs = torch.empty((x.shape[0], 0, x.shape[2], x.shape[3])).to(x.device)
@@ -199,6 +197,7 @@ class ImageDecoderLayer(nn.Module):
 		inp_ch = round(input_channels / cardinality)
 		out_ch = round(output_channels / cardinality)
 		self.conv_layers = ModuleDict()
+		self.passthrough = nn.LazyConv2d(output_channels, kernel_size=1, padding=0, bias=False)
 		for i in range(1, cardinality + 1):
 			conv_lower = nn.Conv2d(in_channels=input_channels, out_channels=inp_ch, kernel_size=1, padding=0,
 			                       bias=False)
@@ -208,19 +207,26 @@ class ImageDecoderLayer(nn.Module):
 		self.conv = nn.LazyConv2d(output_channels, kernel_size=1, padding=0, bias=False)
 		self.norm = nn.InstanceNorm2d(output_channels)
 		self.activation = nn.Mish()
-		self.upscale = nn.Upsample(scale_factor=upscale, mode='bicubic')
+		# self.upscale = nn.Upsample(scale_factor=upscale, mode='bicubic')
+		self.h = 0
+		self.w = 0
+
+	def set_size(self, h, w):
+		self.h = h
+		self.w = w
 
 	def forward(self, x):
-		upscaled = self.upscale(x)
+		upscaled = interpolate(x, size=(self.h, self.w), mode='bicubic')
 		convs = []
 		for conv_layer in self.conv_layers.values():
 			conv: Tensor = conv_layer.forward(upscaled)
 			convs.append(conv)
 		all_convs = torch.cat(convs, dim=1)
+		passthrough = self.passthrough(upscaled)
 		conv_res = self.conv(all_convs)
 		normed_res = self.norm(conv_res)
 		active_res = self.activation(normed_res)
-		return active_res, normed_res
+		return active_res + passthrough
 
 
 class Decoder(nn.Module):
@@ -231,7 +237,7 @@ class Decoder(nn.Module):
 		channels = [*channels, 3]
 		layers = len(channels) - 1
 		self.layers = layers
-		upsample_ratio = total_upsample ** (1 / (layers - 1))
+		upsample_ratio = total_upsample ** (1 / layers)
 		decoder_layers = ModuleDict()
 		for layer in range(layers):
 			ch_in = channels[layer]
@@ -243,22 +249,29 @@ class Decoder(nn.Module):
 		self.decoder_layers = decoder_layers
 		self.size = [128, 128]
 		self.last_activation = nn.Sigmoid()
+		self.upsample_ratio = upsample_ratio
+		AppLog.info(f'Decoder upsample : {self.upsample_ratio}')
 
 	def set_size(self, h, w):
 		self.size = [h, w]
 
 	def forward(self, latent_z):
 		[h, w] = self.size
+		_, _, zh, zw = latent_z.shape
+		upsample_h = (h / zh) ** (1 / self.layers)
+		upsample_w = (w / zw) ** (1 / self.layers)
+		sizes_up = [(round(zh * (upsample_h ** layer)), round(zw * (upsample_w ** layer))) for layer in
+		            range(1, self.layers + 1)]
 
 		z_m = latent_z
 
 		for i, dec_layer in enumerate(self.decoder_layers.values()):
-			z_m, unactivated_z_m = dec_layer.forward(z_m)
-			z_m = z_m + unactivated_z_m
+			dec_layer.set_size(sizes_up[i][0], sizes_up[i][1])
+			z_m = dec_layer.forward(z_m)
 
-		x = interpolate(z_m, size=(h, w), mode='bilinear', align_corners=False)
+		# x = interpolate(z_m, size=(h, w), mode='bilinear', align_corners=False)
 
-		return self.last_activation(x) * (256 / 255)
+		return self.last_activation(z_m)
 
 
 class ImageCodec(nn.Module):
@@ -278,5 +291,7 @@ if __name__ == '__main__':
 	# chn =[64, 128, 192, 256]
 	# chn.reverse()
 	# dec = Encoder(chn)
+	# enc = Encoder(64, 256, 6, 1 / 16)
 	enc = ImageCodec(64, 256, 64, 8, 6)
-	summary(enc, [(12, 3, 288, 288)])
+	# AppLog.info(f'Encoder : {enc}')
+	summary(enc, [(12, 3, 256, 288)])
