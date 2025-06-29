@@ -4,7 +4,7 @@ from torch.nn import ModuleDict, functional as F
 from torch.nn.functional import interpolate
 from torchinfo import summary
 
-from src.common.common_utils import AppLog, Ratio, generate_separated_kernels
+from src.common.common_utils import AppLog
 
 
 def create_sep_kernels(input_channels, output_channels, kernel_size):
@@ -26,28 +26,26 @@ class EncoderLayer1st(nn.Module):
 
 		self.active_path = ModuleDict()
 		self.activation = nn.Mish()
-		o_ch = output_channels*3/4
-		kernel_out = round(o_ch * 3 / kernels)
+		# o_ch = output_channels*3/4
+		# kernel_out = round(o_ch * 3 / kernels)
+		# AppLog.info(f'Kernel out {kernel_out}')
+		AppLog.info(f'Output channel {output_channels}')
 
 		for i, kernel_size in enumerate(kernel_list):
-
 			padding = kernel_size // 2
-			if kernel_size <= 3:
-				conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=kernel_out,
-				                       kernel_size=kernel_size,
-				                       padding=padding, bias=False)
-
-				active_seq = nn.Sequential(conv_layer, nn.BatchNorm2d(kernel_out), self.activation)
-				self.active_path[f'{i}'] = active_seq
-				continue
-			conv1, conv2 = generate_separated_kernels(input_channels, kernel_out, kernel_size,
-			                                          Ratio((2 / kernel_size)), switch=False)
-			active_seq = nn.Sequential(conv1, conv2, nn.BatchNorm2d(kernel_out), self.activation)
-
+			if kernel_size == 1:
+				out_ch = round(output_channels / 4)
+			elif kernel_size == 3:
+				out_ch = round(output_channels * 3 / 4)
+			else:
+				out_ch = round(((3 / kernel_size) ** 2) * output_channels)
+			conv_layer = nn.Conv2d(in_channels=input_channels, out_channels=out_ch, kernel_size=kernel_size,
+			                       padding=padding, bias=False)
+			active_seq = nn.Sequential(conv_layer, nn.BatchNorm2d(out_ch), self.activation)
 			self.active_path[f'{i}'] = active_seq
 
-			self.h = -1
-			self.w = -1
+		self.h = -1
+		self.w = -1
 
 	def set_size(self, h, w):
 		self.h = h
@@ -111,16 +109,15 @@ class EncoderLayer3Conv(nn.Module):
 class EncoderLayerGrouped(nn.Module):
 	def __init__(self, input_channels, output_channels, num_kernels, transition_layer_channels, groups=1):
 		super().__init__()
-		self.inp_channel_ranges = [round(input_channels * i / groups) for i in range(groups + 1)]
 		self.out_channel_ranges = [round(output_channels * i / groups) for i in range(groups + 1)]
-		self.compress_input = nn.LazyConv2d(out_channels=input_channels, kernel_size=1, padding=0, bias=False)
 		self.compress_input_for_concat_prev = nn.LazyConv2d(out_channels=transition_layer_channels, kernel_size=1,
 		                                                    padding=0, bias=False)
 		self.encoder_subblocks = ModuleDict()
-
+		self.encoder_input_conv = ModuleDict()
+		input_channel_per_subblock = input_channels//groups
 		for i in range(groups):
-			input_channel_per_subblock = self.inp_channel_ranges[i + 1] - self.inp_channel_ranges[i]
 			output_channel_per_subblock = self.out_channel_ranges[i + 1] - self.out_channel_ranges[i]
+			self.encoder_input_conv[f'subblock_inp{i}'] = nn.LazyConv2d(out_channels=input_channel_per_subblock, kernel_size=1, padding=0, bias=False)
 			self.encoder_subblocks[f'group{i}'] = EncoderLayer3Conv(input_channel_per_subblock,
 			                                                        output_channel_per_subblock, num_kernels)
 			self.h = -1
@@ -132,11 +129,10 @@ class EncoderLayerGrouped(nn.Module):
 
 	def forward(self, x, prev_layers):
 		x_compressed = self.compress_input_for_concat_prev(x)
-		x_compress_for_activation = self.compress_input(torch.cat([x, prev_layers], dim=1))
+		# x_for_activation = torch.cat([x, prev_layers], dim=1)
 		evaluated = []
-		for i, subblock in enumerate(self.encoder_subblocks.values()):
-			encoder_input = x_compress_for_activation[:, self.inp_channel_ranges[i]:self.inp_channel_ranges[i + 1], :,
-			                :]
+		for i, (inp_conv,subblock) in enumerate(zip(self.encoder_input_conv.values(),  self.encoder_subblocks.values())):
+			encoder_input =  inp_conv(torch.cat([x, prev_layers], dim=1))
 			activated = subblock(encoder_input, x_compressed)
 			evaluated.append(activated)
 		activated = torch.cat(evaluated, dim=1)
@@ -159,10 +155,10 @@ class Encoder(nn.Module):
 		self.downsample_input = nn.UpsamplingBilinear2d(scale_factor=downsample_ratio)
 		for i in range(layers):
 			if i == 0:
-				self.layers[f'{i}'] = EncoderLayer1st(channels[i], [1, 3, 5, 7, 9])
+				self.layers[f'{i}'] = EncoderLayer1st(channels[i], [1, 3, 5, 7])
 				continue
 			compute_cost = channels[i - 1] * channels[i] / layer1_compute
-			groups = round(compute_cost ** 0.5)
+			groups = 2 if i == 1 else round(compute_cost ** 0.5)
 			AppLog.info(f'Proportional compute load {compute_cost:.1f}')
 			self.layers[f'{i}'] = EncoderLayerGrouped(channels[i - 1], channels[i], 3, 10,
 			                                          groups=groups)
@@ -238,11 +234,13 @@ class Decoder(nn.Module):
 		layers = len(channels) - 1
 		self.layers = layers
 		upsample_ratio = total_upsample ** (1 / layers)
+		param_compute = channels[-2] * channels[-1]
 		decoder_layers = ModuleDict()
 		for layer in range(layers):
 			ch_in = channels[layer]
 			ch_out = channels[layer + 1]
-			dec_layer = ImageDecoderLayer(ch_in, ch_out, cardinality=max(1, (layers - layer) // 3))
+			cardinality = round((ch_in * ch_out / param_compute) ** 0.5)
+			dec_layer = ImageDecoderLayer(ch_in, ch_out, cardinality=cardinality)
 			decoder_layers[f'{layer}'] = dec_layer
 
 		self.decoder_layers = decoder_layers
@@ -266,7 +264,7 @@ class Decoder(nn.Module):
 
 		for i, dec_layer in enumerate(self.decoder_layers.values()):
 			dec_layer.set_size(sizes_up[i][0], sizes_up[i][1])
-			z_m = dec_layer.forward(z_m)
+			z_m = dec_layer(z_m)
 
 		# x = interpolate(z_m, size=(h, w), mode='bilinear', align_corners=False)
 
@@ -291,6 +289,6 @@ if __name__ == '__main__':
 	# chn.reverse()
 	# dec = Encoder(chn)
 	# enc = Encoder(64, 256, 6, 1 / 16)
-	enc = ImageCodec(64, 256, 64, 8, 6)
+	enc = ImageCodec(64, 256, 64, 6, 6)
 	# AppLog.info(f'Encoder : {enc}')
 	summary(enc, [(16, 3, 272, 272)])
