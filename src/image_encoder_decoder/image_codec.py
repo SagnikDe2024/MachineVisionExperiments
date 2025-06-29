@@ -83,25 +83,6 @@ class EncoderBlockWithPassthrough(nn.Module):
 		active_res = self.active_path(x)
 		return active_res, x
 
-class EncoderBlockWithPassthroughLoweredCompute(nn.Module):
-	def __init__(self, input_channels, output_channels, kernel_size, groups):
-		super().__init__()
-		self.inp_channel_ranges = [ round(input_channels*i/ groups) for i in range(groups+1) ]
-		self.out_channel_ranges = [ round(output_channels*i/groups) for i in range(groups+1) ]
-		self.encoder_subblocks = ModuleDict()
-		for i in range(groups):
-			input_channel_per_subblock = self.inp_channel_ranges[i+1] - self.inp_channel_ranges[i]
-			output_channel_per_subblock = self.out_channel_ranges[i+1] - self.out_channel_ranges[i]
-			self.encoder_subblocks[f'group{i}'] = EncoderBlockWithPassthrough(input_channel_per_subblock, output_channel_per_subblock, kernel_size)
-
-	def forward(self, x):
-		evaluated = []
-		for i,subblock in enumerate(self.encoder_subblocks.values()):
-			encoder_input = x[:, self.inp_channel_ranges[i]:self.inp_channel_ranges[i+1], :, :]
-			activated, _ = subblock(encoder_input)
-			evaluated.append(activated)
-
-		return torch.cat(evaluated, dim=1), x
 
 
 class EncoderLayer3Conv(nn.Module):
