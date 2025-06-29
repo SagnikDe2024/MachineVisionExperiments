@@ -57,6 +57,7 @@ class EncoderLayer1st(nn.Module):
 
 			self.active_path[f'{i}'] = active_seq
 			self.inactive_path[f'{i}'] = inactive_seq
+			self.downsample = nn.FractionalMaxPool2d(2, output_ratio=downsample_ratio)
 
 	def forward(self, x):
 		convs = []
@@ -69,7 +70,7 @@ class EncoderLayer1st(nn.Module):
 		compress_res = self.final_conv(concat_res)
 		normed_res = self.final_norm(compress_res)
 		active_res = self.activation(normed_res)
-		return active_res
+		return self.downsample(active_res)
 
 
 class EncoderBlockWithPassthrough(nn.Module):
