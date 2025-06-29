@@ -59,7 +59,7 @@ class TrainEncoderAndDecoder:
 	             vloss=float('inf')):
 		self.device = train_device
 		self.model_orig = model
-		self.model = torch.compile(self.model_orig, mode="default").to(self.device)
+		self.model = torch.compile(self.model_orig, mode="max-autotune").to(self.device)
 		self.save_training_fn = save_training_fn
 		self.optimizer = optimizer
 
@@ -68,7 +68,7 @@ class TrainEncoderAndDecoder:
 		self.best_vloss = vloss
 
 		self.trained_one_batch = False
-		self.loss_func = torch.compile(ReconstructionLoss(), mode="default").to(self.device)
+		self.loss_func = torch.compile(ReconstructionLoss(), mode="max-autotune").to(self.device)
 		# self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
 		self.scheduler = cycle_sch(self.optimizer)
 
@@ -80,15 +80,17 @@ class TrainEncoderAndDecoder:
 		tloss = 0.0
 		pics_seen = 0
 		for batch_idx, data in enumerate(train_loader):
-			data = data.to(self.device)
-			self.optimizer.zero_grad()
-			result = self.model(data)
-			loss = self.loss_func.forward(result, data)
-			tloss += loss.item()
-			pics_seen += data.shape[0]
-			loss.backward()
-			self.optimizer.step()
-			self.scheduler.step()
+			with torch.backends.cudnn.flags(enabled=True):
+				data = data.to(self.device).to(memory_format=torch.channels_last)
+				self.optimizer.zero_grad()
+				with torch.autocast(device_type="cuda"):
+					result = self.model(data)
+					loss = self.loss_func.forward(result, data)
+				tloss += loss.item()
+				pics_seen += data.shape[0]
+				loss.backward()
+				self.optimizer.step()
+				self.scheduler.step()
 			if not self.trained_one_batch:
 				self.trained_one_batch = True
 				AppLog.info(f'Training loss: {tloss}, batch: {batch_idx + 1}')
@@ -100,9 +102,11 @@ class TrainEncoderAndDecoder:
 		pics_seen = 0
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
-				data = data.to(self.device)
-				result = self.model(data)
-				vloss += self.loss_func(result, data).item()
+				data = data.to(self.device).to(memory_format=torch.channels_last)
+				with torch.autocast(device_type="cuda"):
+					result = self.model(data)
+					loss = self.loss_func(result, data)
+				vloss+=loss.item()
 				pics_seen += data.shape[0]
 		return vloss / pics_seen
 
@@ -197,7 +201,7 @@ def train_codec(lr_min, lr_max, batch_size, size, start_new):
 
 def test_and_show():
 	save_location = 'checkpoints/encode_decode/train_codec_L1_loss.pth'
-	enc = ImageCodec(64, 256, 64, enc_layers=8, dec_layers=6)
+	enc = ImageCodec(64, 256, 64, enc_layers=6, dec_layers=6)
 	optimizer = torch.optim.SGD(enc.parameters(), lr=0.1)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	if os.path.exists(save_location):
