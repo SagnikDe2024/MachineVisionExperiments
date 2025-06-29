@@ -15,7 +15,7 @@ from torchvision.transforms.v2 import CenterCrop, RandomCrop, RandomHorizontalFl
 	Resize
 
 from src.common.common_utils import AppLog, acquire_image
-from src.encoder_decoder.image_reconstruction_loss import ReconstructionLossRelative
+from src.encoder_decoder.image_reconstruction_loss import ReconstructionLoss
 from src.image_encoder_decoder.image_codec import ImageCodec
 
 
@@ -68,8 +68,8 @@ class TrainEncoderAndDecoder:
 		self.best_vloss = vloss
 
 		self.trained_one_batch = False
-		# self.loss_func = torch.compile(MultiscalePerceptualLoss(max_downsample=4), mode="default").to(self.device)
-		self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
+		self.loss_func = torch.compile(ReconstructionLoss(), mode="default").to(self.device)
+		# self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
 		self.scheduler = cycle_sch(self.optimizer)
 
 	# self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=3,
@@ -166,7 +166,7 @@ def load_training_state(location, model, optimizer, only_model=False):
 
 
 def train_codec(lr_min, lr_max, batch_size, size, start_new):
-	save_location = 'checkpoints/encode_decode/train_codec_augmented.pth'
+	save_location = 'checkpoints/encode_decode/train_codec_L1_loss.pth'
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	enc = ImageCodec(64, 256, 64, enc_layers=8, dec_layers=6).to(traindevice)
 	# get_optim = lambda model :  torch.optim.AdamW(
@@ -196,7 +196,7 @@ def train_codec(lr_min, lr_max, batch_size, size, start_new):
 
 
 def test_and_show():
-	save_location = 'checkpoints/encode_decode/train_codec_augmented.pth'
+	save_location = 'checkpoints/encode_decode/train_codec_L1_loss.pth'
 	enc = ImageCodec(64, 256, 64, enc_layers=8, dec_layers=6)
 	optimizer = torch.optim.SGD(enc.parameters(), lr=0.1)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
@@ -206,7 +206,8 @@ def test_and_show():
 		enc.eval()
 		enc.to(traindevice)
 		with torch.no_grad():
-			image = acquire_image('data/CC/train/image_1000.jpeg')
+			# image = acquire_image('data/CC/train/image_1000.jpeg')
+			image = acquire_image('data/normal_pic.jpg')
 			image = image.unsqueeze(0)
 			image = image.to(traindevice)
 			image = resize(image, [512], InterpolationMode.BILINEAR, antialias=True)
@@ -224,7 +225,10 @@ if __name__ == '__main__':
 	parser.add_argument('--batch-size', type=int, default=12, help='Batch size for training')
 	parser.add_argument('--size', type=int, default=300, help='Image size for training and validation')
 	parser.add_argument('--start-new', type=bool, default=False, help='Start new training instead of resuming')
+	parser.add_argument('--test', type=bool, default=False, help='Show a reconstructed test image')
 	args = parser.parse_args()
-	train_codec(args.lr_min, args.lr_max, args.batch_size, args.size, args.start_new)
-	# test_and_show()
+	if args.test:
+		test_and_show()
+	else:
+		train_codec(args.lr_min, args.lr_max, args.batch_size, args.size, args.start_new)
 	AppLog.shut_down()
