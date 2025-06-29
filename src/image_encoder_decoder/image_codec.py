@@ -192,12 +192,12 @@ class Encoder(nn.Module):
 
 
 class ImageDecoderLayer(nn.Module):
-	def __init__(self, input_channels, output_channels, cardinality, upscale=2):
+	def __init__(self, input_channels, output_channels, cardinality):
 		super().__init__()
 		inp_ch = round(input_channels / cardinality)
 		out_ch = round(output_channels / cardinality)
 		self.conv_layers = ModuleDict()
-		self.passthrough = nn.LazyConv2d(output_channels, kernel_size=1, padding=0, bias=False)
+		self.passthrough = nn.LazyConv2d(output_channels, kernel_size=1, padding=0)
 		for i in range(1, cardinality + 1):
 			conv_lower = nn.Conv2d(in_channels=input_channels, out_channels=inp_ch, kernel_size=1, padding=0,
 			                       bias=False)
@@ -242,8 +242,7 @@ class Decoder(nn.Module):
 		for layer in range(layers):
 			ch_in = channels[layer]
 			ch_out = channels[layer + 1]
-			dec_layer = ImageDecoderLayer(ch_in, ch_out, cardinality=max(1, (layers - layer) // 3),
-			                              upscale=upsample_ratio)
+			dec_layer = ImageDecoderLayer(ch_in, ch_out, cardinality=max(1, (layers - layer) // 3))
 			decoder_layers[f'{layer}'] = dec_layer
 
 		self.decoder_layers = decoder_layers
