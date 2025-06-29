@@ -104,40 +104,73 @@ class EncoderBlockWithPassthroughLoweredCompute(nn.Module):
 
 
 class EncoderLayer3Conv(nn.Module):
-	def __init__(self, input_channels, output_channels, kernels, cardinality):
+	def __init__(self, input_channels, output_channels, num_kernels):
 		super().__init__()
+		c1 = input_channels
+		c2 = output_channels
+		k = num_kernels
+		out_p_k = ((c1 ** 0.5) * (c1 * k ** 2 + 36 * c2) ** 0.5 - c1 * k) / (2 * k)
+
 		self.compress = nn.LazyConv2d(out_channels=output_channels, kernel_size=1, padding=0, bias=False)
 		self.activation = nn.Mish()
-		total_groups = cardinality * kernels
-		input_per_kernel = round(input_channels / total_groups)
-		output_per_kernel = round(output_channels / total_groups)
+		output_per_kernel = round(out_p_k)
+
 		par_kernels = ModuleDict()
-		unactive_kernels = ModuleDict()
-		for i in range(1, kernels + 1):
-			for j in range(cardinality):
-				conv_lower = nn.Conv2d(in_channels=input_channels, out_channels=input_per_kernel, kernel_size=1,
-				                       padding=0, bias=False)
-				conv_layer = nn.Conv2d(in_channels=input_per_kernel, out_channels=output_per_kernel, kernel_size=3,
-				                       padding=i, bias=False, dilation=i)
-				unactive = nn.Sequential(conv_lower, conv_layer)
-				all_ops = nn.Sequential(conv_lower, conv_layer, nn.BatchNorm2d(output_per_kernel), nn.Mish())
-				par_kernels[f'{i}_{j}'] = all_ops
-				unactive_kernels[f'{i}_{j}'] = unactive
-		self.inactive_kernels = unactive_kernels
+		for i in range(1, num_kernels + 1):
+			kernel_size = 2 * i + 1
+			activation = EncoderBlockWithPassthrough(input_channels, output_per_kernel, kernel_size)
+			par_kernels[f'{i}'] = activation
+
 		self.all_kernels = par_kernels
 		self.final_norm = nn.BatchNorm2d(output_channels)
 
-	def forward(self, x):
+	def forward(self, x, x_compressed):
 		evaluated = []
-		for inc, act in zip(self.inactive_kernels.values(), self.all_kernels.values()):
-			r = inc(x) + act(x)
-			evaluated.append(r)
-		evaluated.append(x)
-		concat_res = torch.cat(evaluated, dim=1)
-		compress_res = self.compress(concat_res)
+		for act in self.all_kernels.values():
+			activated, _ = act(x)
+			evaluated.append(activated)
+		evaluated.append(x_compressed)
+		concat_activated = torch.cat(evaluated, dim=1)
+		compress_res = self.compress(concat_activated)
 		normed_res = self.final_norm(compress_res)
 		active_res = self.activation(normed_res)
 		return active_res
+
+
+class EncoderLayerGrouped(nn.Module):
+	def __init__(self, input_channels, output_channels, num_kernels, transition_layer_channels, downsample_ratio=1 / 2,
+	             groups=1):
+		super().__init__()
+		self.inp_channel_ranges = [round(input_channels * i / groups) for i in range(groups + 1)]
+		self.out_channel_ranges = [round(output_channels * i / groups) for i in range(groups + 1)]
+		self.downsample_active = nn.FractionalMaxPool2d(2, output_ratio=downsample_ratio)
+		self.downsample_inactive = nn.UpsamplingBilinear2d(scale_factor=downsample_ratio)
+		self.compress_input = nn.LazyConv2d(out_channels=input_channels, kernel_size=1, padding=0, bias=False)
+		self.compress_input_for_concat_prev = nn.LazyConv2d(out_channels=transition_layer_channels, kernel_size=1,
+		                                                    padding=0, bias=False)
+		self.encoder_subblocks = ModuleDict()
+
+		for i in range(groups):
+			input_channel_per_subblock = self.inp_channel_ranges[i + 1] - self.inp_channel_ranges[i]
+			output_channel_per_subblock = self.out_channel_ranges[i + 1] - self.out_channel_ranges[i]
+			self.encoder_subblocks[f'group{i}'] = EncoderLayer3Conv(input_channel_per_subblock,
+			                                                        output_channel_per_subblock, num_kernels)
+
+	def forward(self, x, prev_layers):
+		x_compressed = self.compress_input_for_concat_prev(x)
+		x_compress_for_activation = self.compress_input(torch.cat([x, prev_layers], dim=1))
+		evaluated = []
+		for i, subblock in enumerate(self.encoder_subblocks.values()):
+			encoder_input = x_compress_for_activation[:, self.inp_channel_ranges[i]:self.inp_channel_ranges[i + 1], :,
+			                :]
+			activated = subblock(encoder_input, x_compressed)
+			evaluated.append(activated)
+		activated = torch.cat(evaluated, dim=1)
+		inactive = torch.cat([x_compressed, prev_layers], dim=1)
+		down_sample_active = self.downsample_active(activated)
+		down_sample_inactive = self.downsample_inactive(inactive)
+
+		return down_sample_active, down_sample_inactive
 
 
 class Encoder(nn.Module):
