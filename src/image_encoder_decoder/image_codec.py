@@ -160,24 +160,37 @@ class Encoder(nn.Module):
 		super().__init__()
 		ratio = (ch_out / ch_in) ** (1 / (layers - 1))
 		channels = [round(ch_in * ratio ** i) for i in range(layers)]
+		layer1_compute = channels[0] * channels[1]
 		downsample_ratio = total_downsample ** (1 / (layers - 1))
 		self.layers = ModuleDict()
+		self.transition_layers = ModuleDict()
+		self.downsample_input = nn.UpsamplingBilinear2d(scale_factor=downsample_ratio)
 		for i in range(layers):
 			if i == 0:
-				self.layers[f'{i}'] = EncoderLayer1st(channels[i], [3, 5, 7])
+				self.layers[f'{i}'] = EncoderLayer1st(channels[i], [3, 5, 7], downsample_ratio=downsample_ratio)
 				continue
-			self.layers[f'{i}'] = EncoderLayer3Conv(channels[i - 1], channels[i], 1, max(1, layers // 3))
-		self.reduce = nn.FractionalMaxPool2d(2, output_ratio=downsample_ratio)
+			compute_cost = channels[i - 1] * channels[i] / layer1_compute
+			groups = round(compute_cost ** 0.5)
+			AppLog.info(f'Proportional compute load {compute_cost:.1f}')
+			self.layers[f'{i}'] = EncoderLayerGrouped(channels[i - 1], channels[i], 3, 10,
+			                                          downsample_ratio=downsample_ratio, groups=groups)
+
 		self.activation = nn.Mish()
+		self.ch_out = ch_out
 
 	def forward(self, x):
 		x = (x - 0.5) * 2
-		for layer in self.layers.values():
-			x = layer(x)
-			x = self.reduce(x)
-		sqr = torch.pow(x, 2)
-		constrained = (1 / 3 + 1) * sqr / (sqr / 3 + 1)
-		return constrained
+		inputs = torch.empty((x.shape[0], 0, x.shape[2], x.shape[3])).to(x.device)
+		for i, layer in enumerate(self.layers.values()):
+			if i == 0:
+				x = layer(x)
+				inputs = torch.empty((x.shape[0], 0, x.shape[2], x.shape[3])).to(x.device)
+				continue
+			x, inputs = layer(x, inputs)
+
+		# x = self.activation(x)
+		reduced = x / (torch.abs(x) + 1)
+		return reduced
 
 
 class ImageDecoderLayer(nn.Module):
