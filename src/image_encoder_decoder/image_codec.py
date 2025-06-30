@@ -200,7 +200,14 @@ class Encoder(nn.Module):
 			x, inputs = layer(x, inputs)
 
 		# x = self.activation(x)
-		reduced = x / (torch.abs(x) + 1)
+		part1 = x[:, :self.ch_out//2, :, :]
+		part2 = x[:, self.ch_out//2:, :, :]
+		part1_abs = torch.abs(part1)
+		part2_abs = torch.abs(part2)
+		both = part1_abs + part2_abs
+		part1_norm = part1 / both
+		part2_norm = part2 / both
+		reduced = torch.cat([part1_norm, part2_norm], dim=1)
 		return reduced
 
 
