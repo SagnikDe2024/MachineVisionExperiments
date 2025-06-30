@@ -46,10 +46,14 @@ class EncoderLayer1st(nn.Module):
 
 		self.h = -1
 		self.w = -1
+		self.down_sample_ratio = -1
 
 	def set_size(self, h, w):
 		self.h = h
 		self.w = w
+
+	def set_down_sample_ratio(self, ratio):
+		self.down_sample_ratio = ratio
 
 	def forward(self, x):
 		convs = []
@@ -57,7 +61,10 @@ class EncoderLayer1st(nn.Module):
 			active_res = active_path.forward(x)
 			convs.append(active_res)
 		concat_res = torch.cat(convs, dim=1)
-		return F.fractional_max_pool2d(concat_res, kernel_size=2, output_size=[self.h, self.w])
+		if 0 < self.down_sample_ratio < 1:
+			return F.fractional_max_pool2d(concat_res, kernel_size=2, output_ratio=(self.down_sample_ratio,self.down_sample_ratio))
+		else:
+			return F.fractional_max_pool2d(concat_res, kernel_size=2, output_size=[self.h, self.w])
 
 
 class EncoderBlockWithPassthrough(nn.Module):
@@ -120,12 +127,16 @@ class EncoderLayerGrouped(nn.Module):
 			self.encoder_input_conv[f'subblock_inp{i}'] = nn.LazyConv2d(out_channels=input_channel_per_subblock, kernel_size=1, padding=0, bias=False)
 			self.encoder_subblocks[f'group{i}'] = EncoderLayer3Conv(input_channel_per_subblock,
 			                                                        output_channel_per_subblock, num_kernels)
-			self.h = -1
-			self.w = -1
+		self.h = -1
+		self.w = -1
+		self.down_sample_ratio = -1
 
 	def set_size(self, h, w):
 		self.h = h
 		self.w = w
+
+	def set_down_sample_ratio(self, ratio):
+		self.down_sample_ratio = ratio
 
 	def forward(self, x, prev_layers):
 		x_compressed = self.compress_input_for_concat_prev(x)
@@ -137,8 +148,13 @@ class EncoderLayerGrouped(nn.Module):
 			evaluated.append(activated)
 		activated = torch.cat(evaluated, dim=1)
 		inactive = torch.cat([x_compressed, prev_layers], dim=1)
-		down_sample_active = F.fractional_max_pool2d(activated, kernel_size=2, output_size=[self.h, self.w])
-		down_sample_inactive = F.interpolate(inactive, size=[self.h, self.w], mode='bilinear')
+		if 0 < self.down_sample_ratio < 1:
+			down_sample_active = F.fractional_max_pool2d(activated, kernel_size=2, output_ratio=(self.down_sample_ratio,self.down_sample_ratio))
+			down_sample_inactive = F.interpolate(inactive, scale_factor=self.down_sample_ratio, mode='bilinear')
+
+		else:
+			down_sample_active = F.fractional_max_pool2d(activated, kernel_size=2, output_size=[self.h, self.w])
+			down_sample_inactive = F.interpolate(inactive, size=[self.h, self.w], mode='bilinear')
 
 		return down_sample_active, down_sample_inactive
 
@@ -176,6 +192,7 @@ class Encoder(nn.Module):
 		inputs = torch.empty((x.shape[0], 0, x.shape[2], x.shape[3])).to(x.device)
 		for i, layer in enumerate(self.layers.values()):
 			layer.set_size(sizes_down[i][0], sizes_down[i][1])
+			# layer.set_down_sample_ratio(ds)
 			if i == 0:
 				x = layer(x)
 				inputs = torch.empty((x.shape[0], 0, x.shape[2], x.shape[3])).to(x.device)
@@ -203,16 +220,22 @@ class ImageDecoderLayer(nn.Module):
 		self.conv = nn.LazyConv2d(output_channels, kernel_size=1, padding=0, bias=False)
 		self.norm = nn.InstanceNorm2d(output_channels)
 		self.activation = nn.Mish()
-		# self.upscale = nn.Upsample(scale_factor=upscale, mode='bicubic')
+		self.upsample_ratio = -1
 		self.h = 0
 		self.w = 0
+
 
 	def set_size(self, h, w):
 		self.h = h
 		self.w = w
 
+	def set_upsample_ratio(self, ratio):
+		self.upsample_ratio = ratio
+
 	def forward(self, x):
-		upscaled = interpolate(x, size=(self.h, self.w), mode='bicubic')
+		upscaled = interpolate(x, scale_factor=self.upsample_ratio,
+		                       mode='bicubic') if self.upsample_ratio > 1 else interpolate(x, size=(self.h, self.w),
+		                                                                                   mode='bicubic')
 		convs = []
 		for conv_layer in self.conv_layers.values():
 			conv: Tensor = conv_layer.forward(upscaled)
@@ -264,6 +287,7 @@ class Decoder(nn.Module):
 
 		for i, dec_layer in enumerate(self.decoder_layers.values()):
 			dec_layer.set_size(sizes_up[i][0], sizes_up[i][1])
+			# dec_layer.set_upsample_ratio(self.upsample_ratio)
 			z_m = dec_layer(z_m)
 
 		# x = interpolate(z_m, size=(h, w), mode='bilinear', align_corners=False)
@@ -289,6 +313,6 @@ if __name__ == '__main__':
 	# chn.reverse()
 	# dec = Encoder(chn)
 	# enc = Encoder(64, 256, 6, 1 / 16)
-	enc = ImageCodec(64, 256, 64, 6, 6)
+	enc = ImageCodec(64, 256, 64, 7, 7)
 	# AppLog.info(f'Encoder : {enc}')
-	summary(enc, [(16, 3, 272, 272)])
+	summary(enc, [(12, 3, 292, 292)])
