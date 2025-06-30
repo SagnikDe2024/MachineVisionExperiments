@@ -15,7 +15,7 @@ from torchvision.transforms.v2 import CenterCrop, RandomCrop, RandomHorizontalFl
 	Resize
 
 from src.common.common_utils import AppLog, acquire_image
-from src.encoder_decoder.image_reconstruction_loss import ReconstructionLoss
+from src.encoder_decoder.image_reconstruction_loss import ReconstructionLossRelative
 from src.image_encoder_decoder.image_codec import ImageCodec
 
 
@@ -68,8 +68,8 @@ class TrainEncoderAndDecoder:
 		self.best_vloss = vloss
 
 		self.trained_one_batch = False
-		self.loss_func = torch.compile(ReconstructionLoss(), mode="max-autotune").to(self.device)
-		# self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
+		# self.loss_func = torch.compile(ReconstructionLoss(), mode="default").to(self.device)
+		self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
 		self.scheduler = cycle_sch(self.optimizer)
 
 	# self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=3,
@@ -172,7 +172,7 @@ def load_training_state(location, model, optimizer, only_model=False):
 def train_codec(lr_min, lr_max, batch_size, size, start_new):
 	save_location = 'checkpoints/encode_decode/train_codec_L1_loss.pth'
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
-	enc = ImageCodec(64, 256, 64, enc_layers=8, dec_layers=6).to(traindevice)
+	enc = getImageEncoderDecoder().to(traindevice)
 	# get_optim = lambda model :  torch.optim.AdamW(
 	# 		[{'params': model.encoder.parameters()},
 	# 		 {'params': model.decoder.parameters(), 'weight_decay': 0.0001}],
@@ -199,9 +199,14 @@ def train_codec(lr_min, lr_max, batch_size, size, start_new):
 		trainer.train_and_evaluate(train_loader, val_loader)
 
 
+def getImageEncoderDecoder():
+	enc = ImageCodec(64, 256, 64, enc_layers=6, dec_layers=6)
+	return enc
+
+
 def test_and_show():
 	save_location = 'checkpoints/encode_decode/train_codec_L1_loss.pth'
-	enc = ImageCodec(64, 256, 64, enc_layers=6, dec_layers=6)
+	enc = getImageEncoderDecoder()
 	optimizer = torch.optim.SGD(enc.parameters(), lr=0.1)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	if os.path.exists(save_location):
@@ -210,10 +215,10 @@ def test_and_show():
 		enc.eval()
 		enc.to(traindevice)
 		with torch.no_grad():
-			# image = acquire_image('data/CC/train/image_1000.jpeg')
-			image = acquire_image('data/normal_pic.jpg')
+			image = acquire_image('data/CC/train/image_1000.jpeg')
+			# image = acquire_image('data/normal_pic.jpg')
 			image = image.unsqueeze(0)
-			image = image.to(traindevice)
+			image = image.to(traindevice).to(memory_format=torch.channels_last)
 			image = resize(image, [512], InterpolationMode.BILINEAR, antialias=True)
 			encoded = enc.forward(image)
 			image_pil = torchvision.transforms.ToPILImage()(image.squeeze(0))
