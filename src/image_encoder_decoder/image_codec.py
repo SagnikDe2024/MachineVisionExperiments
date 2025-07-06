@@ -204,14 +204,14 @@ class Encoder(nn.Module):
 
 
 class ImageDecoderLayer(nn.Module):
-	def __init__(self, input_channels, output_channels, cardinality):
+	def __init__(self, input_channels, output_channels, transition, cardinality):
 		super().__init__()
 		inp_ch = round(input_channels / cardinality)
 		out_ch = round(output_channels / cardinality)
+		self.transition_conv = nn.Conv2d(in_channels=input_channels, out_channels=transition, kernel_size=1)
 		self.conv_layers = ModuleDict()
-		self.passthrough = nn.LazyConv2d(output_channels, kernel_size=1, padding=0)
 		for i in range(1, cardinality + 1):
-			conv_lower = nn.Conv2d(in_channels=input_channels, out_channels=inp_ch, kernel_size=1, padding=0,
+			conv_lower = nn.LazyConv2d(out_channels=inp_ch, kernel_size=1, padding=0,
 			                       bias=False)
 			conv_layer = nn.Conv2d(in_channels=inp_ch, out_channels=out_ch, kernel_size=3, padding=1, bias=False)
 			seq = nn.Sequential(conv_lower, conv_layer)
@@ -235,16 +235,26 @@ class ImageDecoderLayer(nn.Module):
 		upscaled = interpolate(tensor, scale_factor=self.upsample_ratio,
 		                       mode='bicubic') if self.upsample_ratio > 1 else interpolate(tensor, size=(self.h, self.w),
 		                                                                                   mode='bicubic')
+		return upscaled
+
+	def forward(self, x, prev):
+
+		transition_x_inp = self.transition_conv(x)
+		upscaled = self.upscale_tensor(torch.cat([x, prev], dim=1))
+		transition_x = self.upscale_tensor(torch.cat([transition_x_inp, prev] ,dim=1))
+
+
+
 		convs = []
 		for conv_layer in self.conv_layers.values():
 			conv: Tensor = conv_layer.forward(upscaled)
 			convs.append(conv)
 		all_convs = torch.cat(convs, dim=1)
-		passthrough = self.passthrough(upscaled)
-		conv_res = self.conv(all_convs)
+		conv_res = self.conv(torch.cat([all_convs, upscaled],dim=1))
 		normed_res = self.norm(conv_res)
 		active_res = self.activation(normed_res)
-		return active_res + passthrough
+
+		return active_res, transition_x
 
 
 class Decoder(nn.Module):
@@ -283,11 +293,13 @@ class Decoder(nn.Module):
 		            range(1, self.layers + 1)]
 
 		z_m = latent_z
+		prev_results = torch.empty((z_m.shape[0], 0, z_m.shape[2], z_m.shape[3])).to(z_m.device)
 
 		for i, dec_layer in enumerate(self.decoder_layers.values()):
 			dec_layer.set_size(sizes_up[i][0], sizes_up[i][1])
 			# dec_layer.set_upsample_ratio(self.upsample_ratio)
-			z_m = dec_layer(z_m)
+			z_m , new_prev = dec_layer(z_m,prev_results)
+			prev_results = new_prev
 
 		# x = interpolate(z_m, size=(h, w), mode='bilinear', align_corners=False)
 
