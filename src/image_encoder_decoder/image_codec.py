@@ -217,7 +217,7 @@ class ImageDecoderLayer(nn.Module):
 			seq = nn.Sequential(conv_lower, conv_layer)
 			self.conv_layers[f'{i}'] = seq
 		self.conv = nn.LazyConv2d(output_channels, kernel_size=1, padding=0, bias=False)
-		self.norm = nn.InstanceNorm2d(output_channels)
+		self.norm = nn.BatchNorm2d(output_channels)
 		self.activation = nn.Mish()
 		self.upsample_ratio = -1
 		self.h = 0
