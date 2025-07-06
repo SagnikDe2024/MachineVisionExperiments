@@ -47,25 +47,81 @@ class MultiscalePerceptualLoss(nn.Module):
 		self.loss1 = nn.L1Loss()
 		self.max_downsample = max_downsample
 		self.steps_to_downsample = steps_to_downsample
-		diffx1 = torch.tensor([[-1, -1], [1, 1]])
-		diffy1 = torch.tensor([[-1, 1], [-1, 1]])
-		avg1 = torch.tensor([[1, 1], [1, 1]])
-		diffx3 = torch.stack([diffx1, diffx1, diffx1], dim=0)
-		diffy3 = torch.stack([diffy1, diffy1, diffy1], dim=0)
-		avg3 = torch.stack([avg1, avg1, avg1], dim=0)
-		self.conv2d_diffx = diffx3.unsqueeze(0) / 2
-		self.conv2d_diffy = diffy3.unsqueeze(0) / 2
-		self.conv2d_avg = avg3.unsqueeze(0) / 4
+
+		diffxf1 = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
+		diffxd1 = torch.tensor([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
+		diffyf1 = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+		diffyd1 = torch.tensor([[1, 0, -1], [2, 0, -2], [1, 0, -1]])
+		diffxf = torch.zeros(3,3,3,3)
+		diffyf = torch.zeros(3,3,3,3)
+		diffxd = torch.zeros(3,3,3,3)
+		diffyd = torch.zeros(3,3,3,3)
+		for i in range(3):
+			diffxf[i,i] = diffxf1
+			diffyf[i,i] = diffyf1
+			diffxd[i,i] = diffxd1
+			diffyd[i,i] = diffyd1
+
+		self.convs = [diffxf / 4,diffyf/4,diffxd/4,diffyd/4]
+
 		self.downsample_ratio = max_downsample ** (-1 / (steps_to_downsample - 1))
 		AppLog.info(f"Downsample ratio: {self.downsample_ratio}")
-		AppLog.info(
-			f'Stacked shapes diffx: {self.conv2d_diffx.shape}, diffy: {self.conv2d_diffy.shape}, '
-			f'avg: {self.conv2d_avg.shape}')
 
 	def get_lumniosity(self, image):
 		this_dev = self.dummy_param.device
 		self.luminosity = self.luminosity.to(this_dev)
 		return torch.sum(image * self.luminosity, dim=1, keepdim=True)
+
+	def get_colour_diff(self,image):
+		img_diffs = map(lambda conv: conv2d(image, conv.to(self.dummy_param.device), padding=1),self.convs)
+		colour_diffs = list(map(lambda img_diff: torch.pow(self.del_c(image, img_diff),1/2),img_diffs))
+
+		r1_res = funky_reduce(colour_diffs[0],colour_diffs[1])
+		r2_res = funky_reduce(colour_diffs[2],colour_diffs[3])
+		all_res = funky_reduce(r1_res,r2_res)
+		return all_res
+
+		#
+		# max_diffs = torch.max(torch.concat(list(colour_diffs),dim=1),dim=1,keepdim=True)[0]
+		# return max_diffs
+
+	def get_color_difference(self, image):
+		this_dev = self.dummy_param.device
+		img_diff_x = conv2d(image, self.conv_diffxf.to(this_dev), padding=1)
+		img_diff_y = conv2d(image, self.conv_diffyf.to(this_dev), padding=1)
+		AppLog.info(f'image_diff_x {img_diff_x.abs().max()}, image_diff_y {img_diff_y.abs().max()}')
+		c_delx = torch.pow(self.del_c(image, img_diff_x),1/2)
+		c_dely = torch.pow(self.del_c(image, img_diff_y),1/2)
+		AppLog.info(f'c_delx_max {c_delx.abs().max()}, c_dely_max {c_dely.abs().max()}')
+		c_del = (c_delx + c_dely - 2*c_delx*c_dely)/(1-c_delx*c_dely)
+		return torch.nan_to_num(c_del, nan=1, posinf=1, neginf=1)
+
+	def del_c(self, image, img_diff):
+		red = image[:, 0:1, :, :]
+		dr = img_diff[:, 0:1, :, :]
+		dg = img_diff[:, 1:2, :, :]
+		db = img_diff[:, 2:3, :, :]
+		c_delta2 = ((2 + red) * dr * dr + 4 * dg * dg + (2 + 255 / 256 - red) * db * db)/9
+		AppLog.info(f'c_delta {c_delta2.shape}, max delta = {c_delta2.max()}')
+		return c_delta2
+
+	def weighted_pixel_imp(self, image):
+		# inv_lum = 1-self.get_lumniosity(image)
+
+		# sat = self.get_saturation(image)
+		sat = 0
+		# inv_lum = torch.zeros_like(sat)
+		inv_lum = 0
+		c_del = self.get_colour_diff(image)
+		mul1 = inv_lum * sat
+		mul2 = sat * c_del
+		mul3 = c_del * inv_lum
+		mulall = inv_lum * sat * c_del
+		num = inv_lum + sat + c_del - 2*(mul1 + mul2 + mul3) + 3*mulall
+		denom = 1 - mul1 - mul2 - mul3 + 2*mulall
+		weight = num / denom
+		return torch.nan_to_num(weight, nan=1, posinf=1, neginf=1)
+
 
 	def get_gradients_no_scale(self, sc_image):
 		this_dev = self.dummy_param.device
