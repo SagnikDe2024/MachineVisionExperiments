@@ -303,8 +303,8 @@ class ImageCodec(nn.Module):
 	def forward(self, x):
 		latent = self.encoder.forward(x)
 		self.decoder.set_size(x.shape[2], x.shape[3])
-		final_res = self.decoder.forward(latent)
-		return final_res
+		final_res = self.decoder(latent)
+		return final_res, latent
 
 
 if __name__ == '__main__':
