@@ -1,8 +1,11 @@
 import torch
-from torchvision.transforms.v2.functional import rgb_to_grayscale_image
+import torchvision
+from torchvision.transforms import InterpolationMode
+from torchvision.transforms.v2.functional import resize, rgb_to_grayscale_image
 from torchvision.utils import save_image
 
-from src.common.common_utils import acquire_image, quincunx_diff_avg
+from src.common.common_utils import AppLog, acquire_image, quincunx_diff_avg
+from src.encoder_decoder.image_reconstruction_loss import MultiscalePerceptualLoss
 
 
 def find_central_diff(img):
@@ -37,16 +40,34 @@ def false_colour(img_diff):
 	result = torch.clamp(red_blue_concat + yellow_concat, 0, 1)  # red_blue_concat + yellow_concat
 	return max_2, max_4, max_value, result
 
+def test_weight(size):
+	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
+	with torch.no_grad():
+		image = acquire_image('data/CC/train/image_1000.jpeg')
+		# image = acquire_image('data/normal_pic.jpg')
+		image = image.unsqueeze(0)
+		image = image.to(traindevice).to(memory_format=torch.channels_last)
+		image = resize(image, [size], InterpolationMode.BILINEAR, antialias=True)
+		loss_fn = MultiscalePerceptualLoss().to(traindevice)
+		weight = loss_fn.weighted_pixel_imp(image)
+		AppLog.info(f'Weight shape: {weight.shape}, image shape: {image.shape}')
+		image_pil = torchvision.transforms.ToPILImage()(image.squeeze(0))
+		encoded_pil = torchvision.transforms.ToPILImage()(weight.squeeze(0))
+		image_pil.show()
+		encoded_pil.show()
+
+
 
 if __name__ == "__main__":
-	img_acq = acquire_image('data/normal_pic.jpg')
-	gray = rgb_to_grayscale_image(img_acq)
-	# diff_w, diff_h = relative_diff(gray)
-	diff_w, diff_h, avg_img = quincunx_diff_avg(gray)
-	diff_w_abs = torch.abs(diff_w)
-	diff_h_abs = torch.abs(diff_h)
-	diff_mul = diff_w_abs * diff_h_abs
-	tot = torch.div(-2 * diff_mul + diff_w_abs + diff_h_abs + 2 ** (-18), 1 - diff_mul + 2 ** (-18))
-	tot = torch.div(tot, avg_img * 2)
-	stacked = torch.concat([diff_h_abs, diff_w_abs, diff_h_abs], dim=0)
-	save_image(stacked, 'out/stacked_normal_pic.png')
+	test_weight(512)
+	# img_acq = acquire_image('data/normal_pic.jpg')
+	# gray = rgb_to_grayscale_image(img_acq)
+	# # diff_w, diff_h = relative_diff(gray)
+	# diff_w, diff_h, avg_img = quincunx_diff_avg(gray)
+	# diff_w_abs = torch.abs(diff_w)
+	# diff_h_abs = torch.abs(diff_h)
+	# diff_mul = diff_w_abs * diff_h_abs
+	# tot = torch.div(-2 * diff_mul + diff_w_abs + diff_h_abs + 2 ** (-18), 1 - diff_mul + 2 ** (-18))
+	# tot = torch.div(tot, avg_img * 2)
+	# stacked = torch.concat([diff_h_abs, diff_w_abs, diff_h_abs], dim=0)
+	# save_image(stacked, 'out/stacked_normal_pic.png')
