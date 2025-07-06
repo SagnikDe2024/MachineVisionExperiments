@@ -125,7 +125,7 @@ class ReconstructionLossRelative(nn.Module):
 		self.luminosity = self.luminosity.to(this_dev)
 		min_max = torch.aminmax(target_image, dim=1, keepdim=True)
 		inv_sat = min_max.min / min_max.max
-		res = torch.nan_to_num(inv_sat, nan=0.0, posinf=0.0, neginf=0.0)
+		res = torch.nan_to_num(inv_sat, nan=1, posinf=1, neginf=1)
 		lum = torch.sum(target_image * self.luminosity, dim=1, keepdim=True)
 		num = res + lum
 		denom = res * lum + res + lum
