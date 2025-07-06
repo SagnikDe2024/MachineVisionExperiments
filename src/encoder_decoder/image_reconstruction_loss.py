@@ -39,6 +39,17 @@ class MultiScaleGradientLoss(nn.Module):
 		return sum(losses)
 
 
+def funky_reduce(t1, t2):
+	t_r = (t1 + t2 - 2*t1*t2)/(1-t1*t2)
+	return torch.nan_to_num(t_r, nan=1, posinf=1, neginf=1)
+
+
+def get_saturation(image):
+	min_max = torch.aminmax(image, dim=1, keepdim=True)
+	inv_sat  = torch.nan_to_num(min_max.min / min_max.max, nan=1, posinf=1, neginf=1)
+	return 1-inv_sat
+
+
 class MultiscalePerceptualLoss(nn.Module):
 	def __init__(self, max_downsample=8, steps_to_downsample=4):
 		super().__init__()
