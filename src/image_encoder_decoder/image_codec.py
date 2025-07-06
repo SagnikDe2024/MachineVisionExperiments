@@ -186,7 +186,6 @@ class Encoder(nn.Module):
 		self.downsample_ratio = downsample_ratio
 
 	def forward(self, x):
-		x = (x - 0.5) * 2
 		_, _, h, w = x.shape
 		ds = self.downsample_ratio
 		sizes_down = [(round(h * (ds ** layer)), round(w * (ds ** layer))) for layer in range(1, self.layer_count + 1)]
@@ -209,7 +208,8 @@ class ImageDecoderLayer(nn.Module):
 		super().__init__()
 		inp_ch = round(input_channels / cardinality)
 		out_ch = round(output_channels / cardinality)
-		self.transition_conv = nn.Conv2d(in_channels=input_channels, out_channels=transition, kernel_size=1)
+		self.transition_conv = nn.Conv2d(in_channels=input_channels, out_channels=transition, kernel_size=1, padding=0,
+		                                 bias=False)
 		self.conv_layers = ModuleDict()
 		for i in range(1, cardinality + 1):
 			conv_lower = nn.LazyConv2d(out_channels=inp_ch, kernel_size=1, padding=0, bias=False)
@@ -279,6 +279,7 @@ class Decoder(nn.Module):
 		self.size = [128, 128]
 		self.last_activation = nn.Sigmoid()
 		self.upsample_ratio = upsample_ratio
+		self.last_compress = nn.LazyConv2d(out_channels=3, kernel_size=1, padding=0)
 		AppLog.info(f'Decoder upsample : {self.upsample_ratio}')
 
 	def set_size(self, h, w):
@@ -301,9 +302,8 @@ class Decoder(nn.Module):
 			z_m, new_prev = dec_layer(z_m, prev_results)
 			prev_results = new_prev
 
-		# x = interpolate(z_m, size=(h, w), mode='bilinear', align_corners=False)
-
-		return self.last_activation(z_m)
+		compressed_prev = self.last_compress(prev_results)
+		return self.last_activation(z_m + compressed_prev)
 
 
 class ImageCodec(nn.Module):
@@ -317,6 +317,23 @@ class ImageCodec(nn.Module):
 		self.decoder.set_size(x.shape[2], x.shape[3])
 		final_res = self.decoder(latent)
 		return final_res, latent
+
+
+def prepare_encoder_data(data):
+	std = torch.std(data, dim=(2, 3), keepdim=True)
+	mean = torch.mean(data, dim=(2, 3), keepdim=True)
+	return (data - mean) / (std + 1e-7)
+
+
+def scale_decoder_data(data):
+	return data * 256 / 255
+
+
+def encode_decode_from_model(model, data):
+	data = prepare_encoder_data(data)
+	final_res, latent = model(data)
+	final_res = scale_decoder_data(final_res)
+	return final_res, latent
 
 
 if __name__ == '__main__':
