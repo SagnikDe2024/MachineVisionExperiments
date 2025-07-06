@@ -262,17 +262,19 @@ class Decoder(nn.Module):
 		super().__init__()
 		ratio = (ch_out / ch_in) ** (1 / (layers - 1))
 		channels = [round(ch_in * ratio ** i) for i in range(layers)]
+		AppLog.info(f'Decoder channels {channels}')
+		param_compute = channels[-2] * channels[-1]
 		channels = [*channels, 3]
 		layers = len(channels) - 1
 		self.layers = layers
 		upsample_ratio = total_upsample ** (1 / layers)
-		param_compute = channels[-2] * channels[-1]
+
 		decoder_layers = ModuleDict()
 		for layer in range(layers):
 			ch_in = channels[layer]
 			ch_out = channels[layer + 1]
-			cardinality = round((ch_in * ch_out / param_compute) ** 0.5)
-			dec_layer = ImageDecoderLayer(ch_in, ch_out, cardinality=cardinality)
+			cardinality = max(round((ch_in * ch_out / param_compute) ** 0.5),1)
+			dec_layer = ImageDecoderLayer(ch_in, ch_out, 12,cardinality=cardinality)
 			decoder_layers[f'{layer}'] = dec_layer
 
 		self.decoder_layers = decoder_layers
