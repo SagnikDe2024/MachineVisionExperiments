@@ -231,9 +231,9 @@ class ImageDecoderLayer(nn.Module):
 	def set_upsample_ratio(self, ratio):
 		self.upsample_ratio = ratio
 
-	def forward(self, x):
-		upscaled = interpolate(x, scale_factor=self.upsample_ratio,
-		                       mode='bicubic') if self.upsample_ratio > 1 else interpolate(x, size=(self.h, self.w),
+	def upscale_tensor(self, tensor):
+		upscaled = interpolate(tensor, scale_factor=self.upsample_ratio,
+		                       mode='bicubic') if self.upsample_ratio > 1 else interpolate(tensor, size=(self.h, self.w),
 		                                                                                   mode='bicubic')
 		convs = []
 		for conv_layer in self.conv_layers.values():
