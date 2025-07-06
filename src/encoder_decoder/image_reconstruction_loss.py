@@ -1,15 +1,34 @@
 import numpy as np
 import torch
 from torch import nn
-from torch.nn.functional import conv2d, interpolate
+from torch.nn.functional import conv2d, interpolate, mse_loss
 from torchmetrics.functional.image import visual_information_fidelity
 
 from src.common.common_utils import AppLog, quincunx_diff_avg
 
+def get_gradient_weights():
+	diffxf1 = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
+	diffxd1 = torch.tensor([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
+	diffyf1 = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+	diffyd1 = torch.tensor([[1, 0, -1], [2, 0, -2], [1, 0, -1]])
+	diffxf = torch.zeros(3, 3, 3, 3)
+	diffyf = torch.zeros(3, 3, 3, 3)
+	diffxd = torch.zeros(3, 3, 3, 3)
+	diffyd = torch.zeros(3, 3, 3, 3)
+	for i in range(3):
+		diffxf[i, i] = diffxf1
+		diffyf[i, i] = diffyf1
+		diffxd[i, i] = diffxd1
+		diffyd[i, i] = diffyd1
+
+	gradient_convs = [diffxf, diffyf, diffxd, diffyd]
+	return gradient_convs
+
 
 class MultiScaleGradientLoss(nn.Module):
-	def __init__(self, max_downsample=8, steps_to_downsample=4):
+	def __init__(self, max_downsample=4, steps_to_downsample=4):
 		super().__init__()
+		self.dummy_param = nn.Parameter(torch.empty(0))
 		md = max_downsample
 		steps = steps_to_downsample
 		self.max_downsample = md
@@ -20,22 +39,21 @@ class MultiScaleGradientLoss(nn.Module):
 		self.loss_weights = [loss_weight / loss_weight_sum for loss_weight in loss_weights_r]
 		AppLog.info(f"Loss scales: {self.loss_scales}")
 		self.loss2 = nn.MSELoss()
-		self.loss1 = nn.L1Loss()
+		self.gradient_convs = get_gradient_weights()
 
-	def get_gradients(self, scale, img):
-		sc_image = interpolate(img, scale_factor=scale, mode='bilinear', align_corners=False)
-		img_diff_w, img_diff_h, _ = quincunx_diff_avg(sc_image)
-		return img_diff_w, img_diff_h
+
+
+	def get_weighted_gradient_loss(self, scale, weight, inferred_image, target_image):
+		target_gradients = self.get_gradients(scale, target_image)
+		inferred_gradients = self.get_gradients(scale, inferred_image)
+		inferred_and_target_gradients = zip(inferred_gradients, target_gradients)
+		mse_losses = map(lambda inf_target_grad : self.loss2(inf_target_grad[0],inf_target_grad[1]) , inferred_and_target_gradients)
+		return sum(mse_losses) * weight
+
 
 	def forward(self, inferred_image, target_image):
-		losses = []
-		for scale_factor, loss_weight in zip(self.loss_scales, self.loss_weights):
-			inf_diff_w_weighted, inf_diff_h_weighted = self.get_gradients(scale_factor, inferred_image)
-			target_diff_w_weighted, target_diff_h_weighted = self.get_gradients(scale_factor, target_image)
-			total_loss: nn.MSELoss = loss_weight * (
-					self.loss2(inf_diff_w_weighted, target_diff_w_weighted) + self.loss2(inf_diff_h_weighted,
-																						 target_diff_h_weighted))
-			losses.append(total_loss)
+		sc_w_fn= lambda sc,w : self.get_weighted_gradient_loss(sc,w,inferred_image,target_image)
+		losses = [sc_w_fn(sc,w) for sc,w in zip(self.loss_scales,self.loss_weights)  ]
 		return sum(losses)
 
 
@@ -50,6 +68,9 @@ def get_saturation(image):
 	return 1-inv_sat
 
 
+
+
+
 class MultiscalePerceptualLoss(nn.Module):
 	def __init__(self, max_downsample=8, steps_to_downsample=4):
 		super().__init__()
@@ -59,19 +80,7 @@ class MultiscalePerceptualLoss(nn.Module):
 		self.max_downsample = max_downsample
 		self.steps_to_downsample = steps_to_downsample
 
-		diffxf1 = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
-		diffxd1 = torch.tensor([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
-		diffyf1 = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
-		diffyd1 = torch.tensor([[1, 0, -1], [2, 0, -2], [1, 0, -1]])
-		diffxf = torch.zeros(3,3,3,3)
-		diffyf = torch.zeros(3,3,3,3)
-		diffxd = torch.zeros(3,3,3,3)
-		diffyd = torch.zeros(3,3,3,3)
-		for i in range(3):
-			diffxf[i,i] = diffxf1
-			diffyf[i,i] = diffyf1
-			diffxd[i,i] = diffxd1
-			diffyd[i,i] = diffyd1
+		diffxd, diffxf, diffyd, diffyf = get_gradient_weights()
 
 		self.convs = [diffxf / 4,diffyf/4,diffxd/4,diffyd/4]
 
@@ -136,9 +145,9 @@ class MultiscalePerceptualLoss(nn.Module):
 
 	def get_gradients_no_scale(self, sc_image):
 		this_dev = self.dummy_param.device
-		img_diff_x = conv2d(sc_image, self.conv2d_diffx.to(this_dev), padding=0)
-		img_diff_y = conv2d(sc_image, self.conv2d_diffy.to(this_dev), padding=0)
-		img_avg = conv2d(sc_image, self.conv2d_avg.to(this_dev), padding=0)
+		img_diff_x = conv2d(sc_image, self.conv_diffxf.to(this_dev), padding=1)
+		img_diff_y = conv2d(sc_image, self.conv_diffyf.to(this_dev), padding=1)
+		img_avg = conv2d(sc_image, self.conv2d_avg.to(this_dev), padding=1)
 		return img_diff_x, img_diff_y, img_avg
 
 	def calc_loss(self, inferred_image, target_image):
