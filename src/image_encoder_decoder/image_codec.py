@@ -324,6 +324,6 @@ if __name__ == '__main__':
 	# chn.reverse()
 	# dec = Encoder(chn)
 	# enc = Encoder(64, 256, 6, 1 / 16)
-	enc = ImageCodec(64, 256, 64, 7, 7)
+	enc = ImageCodec(64, 256, 64, 7, 6)
 	# AppLog.info(f'Encoder : {enc}')
 	summary(enc, [(12, 3, 292, 292)])
