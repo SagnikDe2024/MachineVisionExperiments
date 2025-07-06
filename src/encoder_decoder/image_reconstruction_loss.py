@@ -168,10 +168,48 @@ class MultiscalePerceptualLoss(nn.Module):
 class ReconstructionLoss(nn.Module):
 	def __init__(self):
 		super().__init__()
-		self.loss1 = nn.L1Loss()
+		self.dummy_param = nn.Parameter(torch.empty(0))
+		self.loss2 = nn.MSELoss()
+		diffxf1 = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
+		diffxd1 = torch.tensor([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
+		diffyf1 = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+		diffyd1 = torch.tensor([[1, 0, -1], [2, 0, -2], [1, 0, -1]])
+		diffxf = torch.zeros(3,3,3,3)
+		diffyf = torch.zeros(3,3,3,3)
+		diffxd = torch.zeros(3,3,3,3)
+		diffyd = torch.zeros(3,3,3,3)
+		for i in range(3):
+			diffxf[i,i] = diffxf1
+			diffyf[i,i] = diffyf1
+			diffxd[i,i] = diffxd1
+			diffyd[i,i] = diffyd1
+
+		self.convs = [diffxf / 4,diffyf/4,diffxd/4,diffyd/4]
+
+	def del_c(self, image, img_diff):
+		red = image[:, 0:1, :, :]
+		dr = img_diff[:, 0:1, :, :]
+		dg = img_diff[:, 1:2, :, :]
+		db = img_diff[:, 2:3, :, :]
+		c_delta2 = ((2 + red) * dr * dr + 4 * dg * dg + (2 + 255 / 256 - red) * db * db)/9
+		return c_delta2
+
+	def get_colour_diff(self,image):
+		img_diffs = map(lambda conv: conv2d(image, conv.to(self.dummy_param.device), padding=1),self.convs)
+		colour_diffs = list(map(lambda img_diff: torch.pow(self.del_c(image, img_diff),1/2),img_diffs))
+
+		r1_res = funky_reduce(colour_diffs[0],colour_diffs[1])
+		r2_res = funky_reduce(colour_diffs[2],colour_diffs[3])
+		all_res = funky_reduce(r1_res,r2_res)
+		return all_res
 
 	def forward(self, inferred_image, target_image):
-		return self.loss1(inferred_image, target_image)
+		all_res = self.get_colour_diff(target_image) + get_saturation(target_image)
+		new_weight = all_res + 1
+		weight = torch.concat([new_weight,new_weight,new_weight],dim=1)
+		ls = mse_loss(inferred_image, target_image,weight=weight)
+		return ls
+		# return self.loss2(inferred_image, target_image,new_weight)
 
 
 class ReconstructionLossRelative(nn.Module):
