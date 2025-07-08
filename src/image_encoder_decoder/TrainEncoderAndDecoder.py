@@ -83,9 +83,7 @@ class TrainEncoderAndDecoder:
 			with torch.backends.cudnn.flags(enabled=True):
 				data = data.to(self.device)
 				self.optimizer.zero_grad()
-				with torch.autocast(device_type="cuda"):
-					result = self.model(data)
-					loss = self.loss_func.forward(result, data)
+				loss = self.get_loss_by_inference(data)
 				tloss += loss.item()
 				pics_seen += data.shape[0]
 				loss.backward()
@@ -95,6 +93,17 @@ class TrainEncoderAndDecoder:
 				self.trained_one_batch = True
 				AppLog.info(f'Training loss: {tloss}, batch: {batch_idx + 1}')
 		return tloss / pics_seen
+
+	def get_loss_by_inference(self, data):
+		with torch.autocast(device_type=self.device):
+			result, lat = self.result_enc_dec(data)
+			std_result = prepare_encoder_data(result)
+			std_data = prepare_encoder_data(data)
+			loss = self.loss_func(std_result, std_data)
+		return loss
+
+	def result_enc_dec(self, data):
+		return encode_decode_from_model(self.model, data)
 
 	def evaluate(self, val_loader):
 		self.model.eval()
