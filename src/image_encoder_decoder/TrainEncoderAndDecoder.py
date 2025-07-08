@@ -197,12 +197,12 @@ def train_codec(lr_min, lr_max, batch_size, size, start_new):
 		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer)
 		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e}')
 		scheduler_fn = lambda optim: CyclicLR(optim, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
-		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler_fn, save_training_fn, epoch, 30, vloss)
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler_fn, save_training_fn, epoch, 50, vloss)
 		trainer.train_and_evaluate(train_loader, val_loader)
 	else:
 		AppLog.info(f'Training from scratch. Using learning rate {lr_min} and device {traindevice}')
 		scheduler_fn = lambda optim: CyclicLR(optim, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
-		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler_fn, save_training_fn, 0, 30)
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler_fn, save_training_fn, 0, 50)
 		trainer.train_and_evaluate(train_loader, val_loader)
 
 
