@@ -46,7 +46,7 @@ def test_weight(size):
 		image = acquire_image('data/CC/train/image_1000.jpeg')
 		# image = acquire_image('data/normal_pic.jpg')
 		image = image.unsqueeze(0)
-		image = image.to(traindevice).to(memory_format=torch.channels_last)
+		image = image.to(traindevice)
 		image = resize(image, [size], InterpolationMode.BILINEAR, antialias=True)
 		loss_fn = MultiscalePerceptualLoss().to(traindevice)
 		weight = loss_fn.weighted_pixel_imp(image)
