@@ -15,8 +15,8 @@ from torchvision.transforms.v2 import CenterCrop, RandomCrop, RandomHorizontalFl
 	Resize
 
 from src.common.common_utils import AppLog, acquire_image
-from src.encoder_decoder.image_reconstruction_loss import ReconstructionLossRelative
-from src.image_encoder_decoder.image_codec import ImageCodec
+from src.encoder_decoder.image_reconstruction_loss import MultiScaleGradientLoss
+from src.image_encoder_decoder.image_codec import ImageCodec, encode_decode_from_model, prepare_encoder_data
 
 
 class ImageFolderDataset(Dataset):
@@ -68,8 +68,8 @@ class TrainEncoderAndDecoder:
 		self.best_vloss = vloss
 
 		self.trained_one_batch = False
-		# self.loss_func = torch.compile(ReconstructionLoss(), mode="default").to(self.device)
-		self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
+		self.loss_func = torch.compile(MultiScaleGradientLoss(self.device), mode="max-autotune").to(self.device)
+		# self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
 		self.scheduler = cycle_sch(self.optimizer)
 
 	# self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=3,
