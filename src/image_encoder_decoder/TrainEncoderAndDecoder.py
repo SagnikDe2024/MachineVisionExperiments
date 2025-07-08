@@ -127,7 +127,7 @@ class TrainEncoderAndDecoder:
 			AppLog.info(
 					f'Epoch {self.current_epoch + 1}: Training loss = {train_loss:.3e}, Validation Loss = '
 					f'{val_loss:.3e}, '
-					f'lr = {self.scheduler.get_last_lr()}')
+					f'lr = {(self.scheduler.get_last_lr()[0]):.3e}')
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
 				self.save_training_fn(self.model_orig, self.optimizer, self.current_epoch + 1, val_loss)
