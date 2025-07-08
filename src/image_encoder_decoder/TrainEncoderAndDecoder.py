@@ -207,7 +207,7 @@ def train_codec(lr_min, lr_max, batch_size, size, start_new):
 
 
 def getImageEncoderDecoder():
-	enc = ImageCodec(64, 256, 64, enc_layers=6, dec_layers=6)
+	enc = ImageCodec(64, 256, 64, enc_layers=7, dec_layers=6)
 	return enc
 
 
