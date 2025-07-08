@@ -177,7 +177,7 @@ def load_training_state(location, model, optimizer, only_model=False):
 
 
 def train_codec(lr_min, lr_max, batch_size, size, start_new):
-	save_location = 'checkpoints/encode_decode/train_codec_L1_loss.pth'
+	save_location = 'checkpoints/encode_decode/train_codec.pth'
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	enc = getImageEncoderDecoder().to(traindevice)
 	# get_optim = lambda model :  torch.optim.AdamW(
@@ -211,8 +211,8 @@ def getImageEncoderDecoder():
 	return enc
 
 
-def test_and_show():
-	save_location = 'checkpoints/encode_decode/train_codec_L1_loss.pth'
+def test_and_show(size):
+	save_location = 'checkpoints/encode_decode/train_codec.pth'
 	enc = getImageEncoderDecoder()
 	optimizer = torch.optim.SGD(enc.parameters(), lr=0.1)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
@@ -244,7 +244,7 @@ if __name__ == '__main__':
 	parser.add_argument('--test', type=bool, default=False, help='Show a reconstructed test image')
 	args = parser.parse_args()
 	if args.test:
-		test_and_show()
+		test_and_show(size=args.size)
 	else:
 		train_codec(args.lr_min, args.lr_max, args.batch_size, args.size, args.start_new)
 	AppLog.shut_down()
