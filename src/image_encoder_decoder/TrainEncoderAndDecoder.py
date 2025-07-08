@@ -81,7 +81,7 @@ class TrainEncoderAndDecoder:
 		pics_seen = 0
 		for batch_idx, data in enumerate(train_loader):
 			with torch.backends.cudnn.flags(enabled=True):
-				data = data.to(self.device).to(memory_format=torch.channels_last)
+				data = data.to(self.device)
 				self.optimizer.zero_grad()
 				with torch.autocast(device_type="cuda"):
 					result = self.model(data)
@@ -102,11 +102,9 @@ class TrainEncoderAndDecoder:
 		pics_seen = 0
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
-				data = data.to(self.device).to(memory_format=torch.channels_last)
-				with torch.autocast(device_type="cuda"):
-					result = self.model(data)
-					loss = self.loss_func(result, data)
-				vloss+=loss.item()
+				data = data.to(self.device)
+				loss = self.get_loss_by_inference(data)
+				vloss += loss.item()
 				pics_seen += data.shape[0]
 		return vloss / pics_seen
 
@@ -218,9 +216,9 @@ def test_and_show():
 			image = acquire_image('data/CC/train/image_1000.jpeg')
 			# image = acquire_image('data/normal_pic.jpg')
 			image = image.unsqueeze(0)
-			image = image.to(traindevice).to(memory_format=torch.channels_last)
-			image = resize(image, [512], InterpolationMode.BILINEAR, antialias=True)
-			encoded = enc.forward(image)
+			image = image.to(traindevice)
+			image = resize(image, [size], InterpolationMode.BILINEAR, antialias=True)
+			encoded, lat = encode_decode_from_model(enc, image)
 			image_pil = torchvision.transforms.ToPILImage()(image.squeeze(0))
 			encoded_pil = torchvision.transforms.ToPILImage()(encoded.squeeze(0))
 			image_pil.show()
