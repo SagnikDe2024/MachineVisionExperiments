@@ -70,7 +70,7 @@ class TrainEncoderAndDecoder:
 		self.trained_one_batch = False
 		self.loss_func = torch.compile(MultiScaleGradientLoss(self.device), mode="max-autotune").to(self.device)
 		# self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
-		self.scheduler = cycle_sch(self.optimizer)
+		self.scheduler = cycle_sch
 
 	# self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=3,
 	#                                                 min_lr=1e-8)
@@ -130,7 +130,8 @@ class TrainEncoderAndDecoder:
 					f'lr = {(self.scheduler.get_last_lr()[0]):.3e}')
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
-				self.save_training_fn(self.model_orig, self.optimizer, self.current_epoch + 1, val_loss)
+				self.save_training_fn(self.model_orig, self.optimizer, self.current_epoch + 1, val_loss,
+				                      self.scheduler)
 			self.current_epoch += 1
 
 
@@ -161,22 +162,31 @@ def prepare_data():
 			AppLog.info(f'Images saved: {i}')
 
 
-def save_training_state(location, model, optimizer, epoch, vloss):
-	torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(), 'epoch': epoch,
+def save_training_state(location, model, optimizer, epoch, vloss, scheduler=None):
+	if scheduler is None:
+		scheduler_state = None
+	else:
+		scheduler_state = scheduler.state_dict()
+	torch.save({'model_state_dict'    : model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(),
+	            'epoch'               : epoch, 'scheduler_state_dict': scheduler_state, 'v_loss': vloss,
 	            'v_loss'          : vloss, }, location, )
 
 
-def load_training_state(location, model, optimizer, only_model=False):
+def load_training_state(location, model, optimizer=None, scheduler=None):
 	checkpoint = torch.load(location)
 	model.load_state_dict(checkpoint['model_state_dict'])
-	if not only_model:
+	if optimizer is not None and 'optimizer_state_dict' in checkpoint.keys() and checkpoint[
+		'optimizer_state_dict'] is not None:
 		optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+	if scheduler is not None and 'scheduler_state_dict' in checkpoint.keys() and checkpoint[
+		'scheduler_state_dict'] is not None:
+		scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
 	epoch = checkpoint['epoch']
 	vloss = checkpoint['v_loss']
-	return model, optimizer, epoch, vloss
+	return model, optimizer, epoch, vloss, scheduler
 
 
-def train_codec(lr_min, lr_max, batch_size, size, start_new):
+def train_codec(lr_min, lr_max, batch_size, size, reset_vloss, start_new):
 	save_location = 'checkpoints/encode_decode/train_codec.pth'
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	enc = getImageEncoderDecoder().to(traindevice)
@@ -184,25 +194,27 @@ def train_codec(lr_min, lr_max, batch_size, size, start_new):
 	# 		[{'params': model.encoder.parameters()},
 	# 		 {'params': model.decoder.parameters(), 'weight_decay': 0.0001}],
 	# 		lr=lr_min)
-	optimizer = torch.optim.AdamW(
-			[{'params': enc.encoder.parameters()},
-			 {'params': enc.decoder.parameters(), 'weight_decay': 0.0001}],
-			lr=lr_min)
+	optimizer = torch.optim.Adam(enc.parameters(), lr=lr_min, fused=True)
 
 	train_loader, val_loader = get_data(batch_size=batch_size, minsize=size)
-	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p: save_training_state(save_location, enc_p,
-	                                                                                    optimizer_p, epoch_p, vloss_p)
-
+	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p, sch: save_training_state(save_location, enc_p,
+	                                                                                         optimizer_p, epoch_p,
+	                                                                                         vloss_p, sch)
+	cyc_sch = CyclicLR(optimizer, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
 	if os.path.exists(save_location) and not start_new:
-		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer)
+
+		enc, optimizer, epoch, vloss, scheduler = load_training_state(save_location, enc, optimizer, cyc_sch)
+		if reset_vloss:
+			vloss = float('inf')
+			epoch = 0
 		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e}')
-		scheduler_fn = lambda optim: CyclicLR(optim, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
-		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler_fn, save_training_fn, epoch, 50, vloss)
+		# scheduler_fn = lambda optim: CyclicLR(optim, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, cyc_sch, save_training_fn, epoch, 50, vloss)
 		trainer.train_and_evaluate(train_loader, val_loader)
 	else:
 		AppLog.info(f'Training from scratch. Using learning rate {lr_min} and device {traindevice}')
-		scheduler_fn = lambda optim: CyclicLR(optim, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
-		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler_fn, save_training_fn, 0, 50)
+		# scheduler_fn = lambda optim: CyclicLR(optim, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, cyc_sch, save_training_fn, 0, 50)
 		trainer.train_and_evaluate(train_loader, val_loader)
 
 
@@ -217,13 +229,13 @@ def test_and_show(size):
 	optimizer = torch.optim.SGD(enc.parameters(), lr=0.1)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	if os.path.exists(save_location):
-		enc, optimizer, epoch, vloss = load_training_state(save_location, enc, optimizer, only_model=True)
+		enc, optimizer, epoch, vloss, _ = load_training_state(save_location, enc)
 		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e}')
 		enc.eval()
 		enc.to(traindevice)
 		with torch.no_grad():
-			image = acquire_image('data/CC/train/image_1000.jpeg')
-			# image = acquire_image('data/normal_pic.jpg')
+			# image = acquire_image('data/CC/train/image_1000.jpeg')
+			image = acquire_image('data/reddit_face.jpg')
 			image = image.unsqueeze(0)
 			image = image.to(traindevice)
 			image = resize(image, [size], InterpolationMode.BILINEAR, antialias=True)
@@ -241,10 +253,11 @@ if __name__ == '__main__':
 	parser.add_argument('--batch-size', type=int, default=12, help='Batch size for training')
 	parser.add_argument('--size', type=int, default=300, help='Image size for training and validation')
 	parser.add_argument('--start-new', type=bool, default=False, help='Start new training instead of resuming')
+	parser.add_argument('--reset-vloss', type=bool, default=False, help='Prepare data for training')
 	parser.add_argument('--test', type=bool, default=False, help='Show a reconstructed test image')
 	args = parser.parse_args()
 	if args.test:
 		test_and_show(size=args.size)
 	else:
-		train_codec(args.lr_min, args.lr_max, args.batch_size, args.size, args.start_new)
+		train_codec(args.lr_min, args.lr_max, args.batch_size, args.size, args.reset_vloss, args.start_new)
 	AppLog.shut_down()
