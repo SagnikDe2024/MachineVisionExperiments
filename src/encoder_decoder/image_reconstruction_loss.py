@@ -1,6 +1,5 @@
 from functools import reduce
 
-import numpy as np
 import torch
 from torch import nn
 from torch.nn.functional import conv2d, interpolate, mse_loss
@@ -40,7 +39,7 @@ class MultiScaleGradientLoss(nn.Module):
 		self.steps_to_downsample = steps_to_downsample
 		self.downsample_ratio = md ** (-1 / (steps - 1))
 		self.loss_scales = [md ** (step / (steps - 1)) for step in range(steps)]
-		loss_weights_r = [np.exp(-step) for step in range(steps)]
+		loss_weights_r = [step * 0.5 + 1 for step in range(steps)]
 		self.loss_weights = torch.tensor(loss_weights_r)
 		AppLog.info(f"Loss scales: {self.loss_weights}, scales: {self.loss_scales}")
 		self.loss2 = nn.MSELoss()
@@ -52,8 +51,8 @@ class MultiScaleGradientLoss(nn.Module):
 		# for conv in self.gradient_convs:
 		# 	gradients.append(conv2d(sc_image, conv.to(self.dummy_param.device), padding=1))
 		# return gradients
-		diff_x = sc_image[:, :, :, 1:] - sc_image[:, :, :, :-1]
-		diff_y = sc_image[:, :, 1:, :] - sc_image[:, :, :-1, :]
+		diff_x = torch.diff(sc_image, 1, -1)
+		diff_y = torch.diff(sc_image, 1, -2)
 		return [diff_x, diff_y]
 
 
