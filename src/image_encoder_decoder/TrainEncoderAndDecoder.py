@@ -186,14 +186,13 @@ def load_training_state(location, model, optimizer=None, scheduler=None):
 	return model, optimizer, epoch, vloss, scheduler
 
 
-def train_codec(lr_min, lr_max, batch_size, size, reset_vloss, start_new):
+def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new):
 	save_location = 'checkpoints/encode_decode/train_codec.pth'
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	enc = getImageEncoderDecoder().to(traindevice)
-	# get_optim = lambda model :  torch.optim.AdamW(
-	# 		[{'params': model.encoder.parameters()},
-	# 		 {'params': model.decoder.parameters(), 'weight_decay': 0.0001}],
-	# 		lr=lr_min)
+	lr_min = lr_min_arg if lr_min_arg is not -1 else 1e-3
+	lr_max = lr_max_arg if lr_max_arg is not -1 else 1e-2
+
 	optimizer = torch.optim.Adam(enc.parameters(), lr=lr_min, fused=True)
 
 	train_loader, val_loader = get_data(batch_size=batch_size, minsize=size)
@@ -202,18 +201,21 @@ def train_codec(lr_min, lr_max, batch_size, size, reset_vloss, start_new):
 	                                                                                         vloss_p, sch)
 	cyc_sch = CyclicLR(optimizer, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
 	if os.path.exists(save_location) and not start_new:
-
-		enc, optimizer, epoch, vloss, scheduler = load_training_state(save_location, enc, optimizer, cyc_sch)
+		if lr_max_arg == -1 and lr_min_arg == -1:
+			enc, optimizer, epoch, vloss, scheduler = load_training_state(save_location, enc, optimizer, cyc_sch)
+		else:
+			enc, optimizer, epoch, vloss, scheduler = load_training_state(save_location, enc, None)
+			scheduler = cyc_sch
+		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e} and scheduler {scheduler}')
 		if reset_vloss:
 			vloss = float('inf')
 			epoch = 0
-		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e}')
-		# scheduler_fn = lambda optim: CyclicLR(optim, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
-		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, cyc_sch, save_training_fn, epoch, 50, vloss)
+		AppLog.info(f'(Re)Starting from epoch {epoch} with vloss {vloss:.3e} and scheduler {scheduler}, using device {traindevice}')
+
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler, save_training_fn, epoch, 50, vloss)
 		trainer.train_and_evaluate(train_loader, val_loader)
 	else:
-		AppLog.info(f'Training from scratch. Using learning rate {lr_min} and device {traindevice}')
-		# scheduler_fn = lambda optim: CyclicLR(optim, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
+		AppLog.info(f'Training from scratch. Using lr_min={lr_min}, lr_max={lr_max} and scheduler {cyc_sch}, using device {traindevice}')
 		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, cyc_sch, save_training_fn, 0, 50)
 		trainer.train_and_evaluate(train_loader, val_loader)
 
@@ -248,8 +250,8 @@ def test_and_show(size):
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Train encoder and decoder model')
-	parser.add_argument('--lr-min', type=float, default=1e-3, help='Min learning rate for training')
-	parser.add_argument('--lr-max', type=float, default=1e-2, help='Max learning rate for training')
+	parser.add_argument('--lr-min', type=float, default=-1, help='Min learning rate for training')
+	parser.add_argument('--lr-max', type=float, default=-1, help='Max learning rate for training')
 	parser.add_argument('--batch-size', type=int, default=12, help='Batch size for training')
 	parser.add_argument('--size', type=int, default=300, help='Image size for training and validation')
 	parser.add_argument('--start-new', type=bool, default=False, help='Start new training instead of resuming')
