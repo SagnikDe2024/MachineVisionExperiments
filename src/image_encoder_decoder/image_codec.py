@@ -179,7 +179,7 @@ class Encoder(nn.Module):
 			compute_cost = channels[i - 1] * channels[i] / layer1_compute
 			groups = 2 if i == 1 else round(compute_cost ** 0.5)
 			AppLog.info(f'Proportional compute load {compute_cost:.1f}')
-			self.layers[f'{i}'] = EncoderLayerGrouped(channels[i - 1], channels[i], 3, 10, groups=groups)
+			self.layers[f'{i}'] = EncoderLayerGrouped(channels[i - 1], channels[i], 3, 9, groups=groups)
 		self.layer_count = layers
 		self.activation = nn.Mish()
 		self.ch_out = ch_out
@@ -261,7 +261,7 @@ class Decoder(nn.Module):
 		ratio = (ch_out / ch_in) ** (1 / (layers - 1))
 		channels = [round(ch_in * ratio ** i) for i in range(layers)]
 		AppLog.info(f'Decoder channels {channels}')
-		param_compute = channels[-2] * channels[-1]
+		param_compute = channels[-2] * channels[-1]*(1/3)
 		channels = [*channels, 3]
 		layers = len(channels) - 1
 		self.layers = layers
@@ -272,12 +272,12 @@ class Decoder(nn.Module):
 			ch_in = channels[layer]
 			ch_out = channels[layer + 1]
 			cardinality = max(round((ch_in * ch_out / param_compute) ** 0.5), 1)
-			dec_layer = ImageDecoderLayer(ch_in, ch_out, 12, cardinality=cardinality)
+			dec_layer = ImageDecoderLayer(ch_in, ch_out, 9, cardinality=cardinality)
 			decoder_layers[f'{layer}'] = dec_layer
 
 		self.decoder_layers = decoder_layers
 		self.size = [128, 128]
-		self.last_activation = nn.Sigmoid()
+		self.last_activation = nn.Tanh()
 		self.upsample_ratio = upsample_ratio
 		self.last_compress = nn.LazyConv2d(out_channels=3, kernel_size=1, padding=0)
 		AppLog.info(f'Decoder upsample : {self.upsample_ratio}')
@@ -320,13 +320,17 @@ class ImageCodec(nn.Module):
 
 
 def prepare_encoder_data(data):
-	std = torch.std(data, dim=(2, 3), keepdim=True)
-	mean = torch.mean(data, dim=(2, 3), keepdim=True)
-	return (data - mean) / (std + 1e-7)
+	# mean = torch.mean(data, dim=(2, 3), keepdim=True)
+	# abs_diff = torch.abs(data - mean)
+	# abs_diff_mean = torch.mean(abs_diff, dim=(2, 3), keepdim=True)
+	# return (data - mean) / (abs_diff_mean + 1e-7)
+	return (data - 0.5) / 0.5
 
 
 def scale_decoder_data(data):
-	return data * 256 / 255
+	sc1 = data * 256 / 255
+	sc2 = sc1*0.5+0.5
+	return sc2
 
 
 def encode_decode_from_model(model, data):
@@ -343,4 +347,4 @@ if __name__ == '__main__':
 	# enc = Encoder(64, 256, 6, 1 / 16)
 	enc = ImageCodec(64, 256, 64, 7, 6)
 	# AppLog.info(f'Encoder : {enc}')
-	summary(enc, [(12, 3, 292, 292)])
+	summary(enc, [(14, 3, 262, 262)])
