@@ -39,7 +39,7 @@ class MultiScaleGradientLoss(nn.Module):
 		self.steps_to_downsample = steps_to_downsample
 		self.downsample_ratio = md ** (-1 / (steps - 1))
 		self.loss_scales = [md ** (step / (steps - 1)) for step in range(steps)]
-		loss_weights_r = [step * 0.5 + 1 for step in range(steps)]
+		loss_weights_r = [1 / (step * 0.5 + 1) for step in range(steps)]
 		self.loss_weights = torch.tensor(loss_weights_r)
 		AppLog.info(f"Loss scales: {self.loss_weights}, scales: {self.loss_scales}")
 		self.loss2 = nn.MSELoss()
@@ -80,7 +80,6 @@ class MultiScaleGradientLoss(nn.Module):
 			basic_loss += summed * loss_w
 			inferred_image = self.downsampler(inferred_image)
 			target_image = self.downsampler(target_image)
-
 		return basic_loss
 	#
 	#
