@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 import torchvision
 from PIL import Image
-from torch.optim.lr_scheduler import CyclicLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import resize
@@ -37,6 +37,7 @@ class ImageFolderDataset(Dataset):
 
 def get_data(batch_size=16, minsize=272):
 	maxsize = round(minsize * 2.5)
+
 	transform_train = torchvision.transforms.Compose([
 			RandomResize(minsize, maxsize),
 			RandomCrop(minsize), RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5),
@@ -57,6 +58,7 @@ def get_data(batch_size=16, minsize=272):
 class TrainEncoderAndDecoder:
 	def __init__(self, model, optimizer, train_device, cycle_sch, save_training_fn, starting_epoch, ending_epoch,
 	             vloss=float('inf')):
+		loss_fn = MultiScaleGradientLoss(train_device).requires_grad_(False)
 		self.device = train_device
 		self.model_orig = model
 		self.model = torch.compile(self.model_orig, mode="max-autotune").to(self.device)
@@ -68,7 +70,7 @@ class TrainEncoderAndDecoder:
 		self.best_vloss = vloss
 
 		self.trained_one_batch = False
-		self.loss_func = torch.compile(MultiScaleGradientLoss(self.device), mode="max-autotune").to(self.device)
+		self.loss_func = torch.compile(loss_fn, mode="max-autotune").to(self.device)
 		# self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
 		self.scheduler = cycle_sch
 
@@ -88,7 +90,7 @@ class TrainEncoderAndDecoder:
 				pics_seen += data.shape[0]
 				loss.backward()
 				self.optimizer.step()
-				self.scheduler.step()
+			# self.scheduler.step()
 			if not self.trained_one_batch:
 				self.trained_one_batch = True
 				AppLog.info(f'Training loss: {tloss}, batch: {batch_idx + 1}')
@@ -96,14 +98,11 @@ class TrainEncoderAndDecoder:
 
 	def get_loss_by_inference(self, data):
 		with torch.autocast(device_type=self.device):
-			result, lat = self.result_enc_dec(data)
+			result, lat = encode_decode_from_model(self.model, data)
 			std_result = prepare_encoder_data(result)
 			std_data = prepare_encoder_data(data)
 			loss = self.loss_func(std_result, std_data)
 		return loss
-
-	def result_enc_dec(self, data):
-		return encode_decode_from_model(self.model, data)
 
 	def evaluate(self, val_loader):
 		self.model.eval()
@@ -123,6 +122,7 @@ class TrainEncoderAndDecoder:
 		while self.current_epoch < self.ending_epoch:
 			train_loss = self.train_one_epoch(train_loader)
 			val_loss = self.evaluate(val_loader)
+			self.scheduler.step()
 			# self.scheduler.step(val_loss,epoch=epoch)
 			AppLog.info(
 					f'Epoch {self.current_epoch + 1}: Training loss = {train_loss:.3e}, Validation Loss = '
@@ -190,21 +190,22 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 	save_location = 'checkpoints/encode_decode/train_codec.pth'
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	enc = getImageEncoderDecoder().to(traindevice)
-	lr_min = lr_min_arg if lr_min_arg is not -1 else 1e-3
-	lr_max = lr_max_arg if lr_max_arg is not -1 else 1e-2
+	lr_min = lr_min_arg if lr_min_arg > 0 else 1e-3
+	lr_max = lr_max_arg if lr_max_arg > 0 else 1e-2
 
-	optimizer = torch.optim.Adam(enc.parameters(), lr=lr_min, fused=True)
+	optimizer = torch.optim.NAdam(enc.parameters(), lr=lr_max)
 
 	train_loader, val_loader = get_data(batch_size=batch_size, minsize=size)
 	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p, sch: save_training_state(save_location, enc_p,
 	                                                                                         optimizer_p, epoch_p,
 	                                                                                         vloss_p, sch)
-	cyc_sch = CyclicLR(optimizer, base_lr=lr_min, max_lr=lr_max, mode='triangular2')
+	cyc_sch = CosineAnnealingLR(optimizer, 10, lr_min)
+
 	if os.path.exists(save_location) and not start_new:
-		if lr_max_arg == -1 and lr_min_arg == -1:
+		if lr_max_arg > 0 and lr_min_arg > 0:
 			enc, optimizer, epoch, vloss, scheduler = load_training_state(save_location, enc, optimizer, cyc_sch)
 		else:
-			enc, optimizer, epoch, vloss, scheduler = load_training_state(save_location, enc, None)
+			enc, optimizer, epoch, vloss, scheduler = load_training_state(save_location, enc, optimizer, None)
 			scheduler = cyc_sch
 		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e} and scheduler {scheduler}')
 		if reset_vloss:
@@ -221,14 +222,13 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 
 
 def getImageEncoderDecoder():
-	enc = ImageCodec(64, 256, 64, enc_layers=7, dec_layers=6)
+	enc = ImageCodec(64, 256, 64, 7, 6, downsample=(256 * 2 / 3) ** (-0.5))
 	return enc
 
 
 def test_and_show(size):
 	save_location = 'checkpoints/encode_decode/train_codec.pth'
 	enc = getImageEncoderDecoder()
-	optimizer = torch.optim.SGD(enc.parameters(), lr=0.1)
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	if os.path.exists(save_location):
 		enc, optimizer, epoch, vloss, _ = load_training_state(save_location, enc)
@@ -236,8 +236,8 @@ def test_and_show(size):
 		enc.eval()
 		enc.to(traindevice)
 		with torch.no_grad():
-			# image = acquire_image('data/CC/train/image_1000.jpeg')
-			image = acquire_image('data/reddit_face.jpg')
+			image = acquire_image('data/CC/train/image_1000.jpeg')
+			# image = acquire_image('data/reddit_face.jpg')
 			image = image.unsqueeze(0)
 			image = image.to(traindevice)
 			image = resize(image, [size], InterpolationMode.BILINEAR, antialias=True)
