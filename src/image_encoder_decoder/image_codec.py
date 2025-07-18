@@ -4,7 +4,7 @@ from torch.nn import ModuleDict, functional as F
 from torch.nn.functional import interpolate
 from torchinfo import summary
 
-from src.common.common_utils import AppLog
+from src.common.common_utils import AppLog, IntermediateChannel, generate_separated_kernels
 
 
 def create_sep_kernels(input_channels, output_channels, kernel_size):
@@ -66,6 +66,31 @@ class EncoderLayer1st(nn.Module):
 			                               output_ratio=(self.down_sample_ratio, self.down_sample_ratio))
 		else:
 			return F.fractional_max_pool2d(concat_res, kernel_size=2, output_size=[self.h, self.w])
+
+class EncoderLayer1stPart2(nn.Module):
+	def __init__(self, output_channels, kernel_list):
+		super().__init__()
+		input_channels = 3
+		self.k1 = nn.Sequential(nn.Conv2d(input_channels, 16, 1,bias=False),nn.BatchNorm2d(16),nn.Mish(),nn.MaxPool2d(2))
+		self.k3 = nn.Sequential(nn.Conv2d(input_channels, 32, 3,padding=1,bias=False), nn.BatchNorm2d(32), nn.Mish(), nn.MaxPool2d(2))
+		k51_1,k51_2 = generate_separated_kernels(3,12,5,IntermediateChannel(3),stride=2,switch=True)
+		self.k51 = nn.Sequential(k51_1,k51_2,nn.BatchNorm2d(12), nn.Mish())
+		k52_1,k52_2 = generate_separated_kernels(3,12,5,IntermediateChannel(3),stride=2,switch=False)
+		self.k52 = nn.Sequential(k52_1,k52_2,nn.BatchNorm2d(12), nn.Mish())
+		k71_1,k71_2 = generate_separated_kernels(3,12,7,IntermediateChannel(3),stride=2,switch=True)
+		self.k71 = nn.Sequential(k71_1,k71_2,nn.BatchNorm2d(12), nn.Mish())
+		k72_1,k72_2 = generate_separated_kernels(3,12,7,IntermediateChannel(3),stride=2,switch=False)
+		self.k72 = nn.Sequential(k72_1,k72_2,nn.BatchNorm2d(12), nn.Mish())
+
+	def forward(self, x):
+		x1 = self.k1(x)
+		x3 = self.k3(x)
+		x51 = self.k51(x)
+		x52 = self.k52(x)
+		x71 = self.k71(x)
+		x72 = self.k72(x)
+		return torch.cat([x1,x3,x51,x52,x71,x72],dim=1)
+
 
 
 class EncoderBlockWithPassthrough(nn.Module):
@@ -345,6 +370,6 @@ if __name__ == '__main__':
 	# chn.reverse()
 	# dec = Encoder(chn)
 	# enc = Encoder(64, 256, 6, 1 / 16)
-	enc = ImageCodec(64, 256, 64, 7, 6)
+	enc = ImageCodec(64, 256, 64, 7, 6,downsample=(256*2/3)**(-0.5))
 	# AppLog.info(f'Encoder : {enc}')
-	summary(enc, [(14, 3, 262, 262)])
+	summary(enc, [(12, 3, 256, 256)])
