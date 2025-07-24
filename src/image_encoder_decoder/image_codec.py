@@ -4,17 +4,8 @@ from torch.nn import ModuleDict, functional as F
 from torch.nn.functional import interpolate
 from torchinfo import summary
 
-from src.common.common_utils import AppLog, IntermediateChannel, generate_separated_kernels
-
-
-def create_sep_kernels(input_channels, output_channels, kernel_size):
-	min_channels = min(input_channels, output_channels)
-	padding = kernel_size // 2
-	conv1 = nn.Conv2d(in_channels=input_channels, out_channels=min_channels, kernel_size=(1, kernel_size),
-	                  padding=(0, padding), bias=False)
-	conv2 = nn.Conv2d(in_channels=min_channels, out_channels=output_channels, kernel_size=(kernel_size, 1),
-	                  padding=(padding, 0), bias=False)
-	return conv1, conv2
+from src.common.common_utils import AppLog
+from src.encoder_decoder.codec import CodecMultiKernelStack, create_sep_kernels
 
 
 class EncoderLayer1st(nn.Module):
