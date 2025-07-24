@@ -267,7 +267,6 @@ class CodecMultiKernelStack(nn.Module):
 				self.kernel_stack.append(enc_block)
 		self.poolingAvg = nn.AvgPool2d(kernel_size=2)
 		self.poolingMax = nn.MaxPool2d(kernel_size=2)
-		self.poolSelector = PoolSelector(127)
 
 	def forward(self, x):
 		x_res = self.kernel_stack(x)
