@@ -5,7 +5,7 @@ from torch import Tensor, nn
 from torch.nn import ModuleDict
 from torch.nn.functional import interpolate
 
-from src.common.common_utils import AppLog, IntermediateChannel, ParamA, generate_separated_kernels
+from src.common.common_utils import AppLog, IntermediateChannel, generate_separated_kernels
 
 
 # class L1BatchNorm2D(nn.Module):
@@ -43,11 +43,9 @@ class EncoderLayer(nn.Module):
 		return pooled
 
 
-
-
 class DecoderLayer(nn.Module):
-
-	def __init__(self, input_ch, mid_ch, output_ch, stack: list[Tuple[int, int]] | Tuple[int, list[int]],upsample : Optional[int]=2):
+	def __init__(self, input_ch, mid_ch, output_ch, stack: list[Tuple[int, int]] | Tuple[int, list[int]],
+	             upsample: Optional[int] = 2):
 		super().__init__()
 		self.cnn_stack = CodecMultiKernelStack(input_ch, mid_ch, output_ch, stack)
 		self.upscale = nn.Upsample(scale_factor=upsample, mode='bicubic') if upsample > 1 else None
@@ -71,9 +69,9 @@ def create_sep_kernels(input_channels, output_channels, kernel_size):
 	min_channels = min(input_channels, output_channels)
 	padding = kernel_size // 2
 	conv1 = nn.Conv2d(in_channels=input_channels, out_channels=min_channels, kernel_size=(1, kernel_size),
-	                  padding=(0, padding), bias=False)
+			padding=(0, padding), bias=False)
 	conv2 = nn.Conv2d(in_channels=min_channels, out_channels=output_channels, kernel_size=(kernel_size, 1),
-	                  padding=(padding, 0), bias=False)
+			padding=(padding, 0), bias=False)
 	return conv1, conv2
 
 
@@ -81,10 +79,10 @@ class EncoderLayer1stParamAux(nn.Module):
 	def __init__(self, in_ch, out_ch, out_ch_end, k_size):
 		super().__init__()
 		k1_1, k1_2 = generate_separated_kernels(in_ch, out_ch, k_size, IntermediateChannel(in_ch), stride=2,
-		                                        switch=True)
+				switch=True)
 		self.activatedk1 = nn.Sequential(k1_1, k1_2, nn.BatchNorm2d(out_ch), nn.Mish())
 		k2_1, k2_2 = generate_separated_kernels(in_ch, out_ch, k_size, IntermediateChannel(in_ch), stride=2,
-		                                        switch=False)
+				switch=False)
 		self.activatedk2 = nn.Sequential(k2_1, k2_2, nn.BatchNorm2d(out_ch), nn.Mish())
 		self.compress = nn.LazyConv2d(out_channels=out_ch_end, kernel_size=1, padding=0, bias=False)
 
@@ -106,13 +104,12 @@ class EncoderLayer1stPart2(nn.Module):
 			out_ch = round(-(9 * (2 * k ** 2 + k * (4 - 3 * out_ch) - 6)) / (6 * k ** 2 + 12 * k + 2 * out_ch + 9))
 		print(f'Output channels {out_ch}')
 		if kernels == 1:
-			self.k3 = nn.Sequential(nn.Conv2d(input_channels, out_ch, 3, padding=1, bias=False), nn.BatchNorm2d(
-					out_ch),
-			                        nn.Mish(), nn.MaxPool2d(2))
+			self.k3 = nn.Sequential(nn.Conv2d(input_channels, out_ch, 3, padding=1, bias=False),
+					nn.BatchNorm2d(out_ch), nn.Mish(), nn.MaxPool2d(2))
 		else:
-			self.k3 = nn.Sequential(nn.Conv2d(input_channels, out_ch, 3, padding=1, bias=False), nn.BatchNorm2d(
-					out_ch),
-			                        nn.Mish(), nn.MaxPool2d(2), nn.LazyConv2d(out_ch_end, 1, padding=0, bias=False))
+			self.k3 = nn.Sequential(nn.Conv2d(input_channels, out_ch, 3, padding=1, bias=False),
+					nn.BatchNorm2d(out_ch), nn.Mish(), nn.MaxPool2d(2),
+					nn.LazyConv2d(out_ch_end, 1, padding=0, bias=False))
 		for k_o in range(2, kernels + 1):
 			k_size = 2 * k_o + 1
 			self.add_module(f'k{k_size}', EncoderLayer1stParamAux(input_channels, out_ch, out_ch_end, k_size))
@@ -123,6 +120,7 @@ class EncoderLayer1stPart2(nn.Module):
 			result.append(k(x))
 
 		return torch.cat(result, dim=1)
+
 
 class ResLinearBlock(nn.Module):
 	def __init__(self, in_ch, out_ch, last=False):
@@ -143,22 +141,22 @@ class ResLinearBlock(nn.Module):
 
 
 class PoolSelector(nn.Module):
-	def __init__(self, m_size):
+	def __init__(self, exp_params):
 		super().__init__()
-
-		side_size = int(m_size ** (1 / 3))
-		self.avg_pool = nn.AdaptiveAvgPool2d(side_size)
-		self.conv_down = nn.LazyConv2d(side_size, kernel_size=1, padding=0, bias=True)
-		new_size = side_size ** 3
+		cube_vol = (exp_params * 1.5 + 1) ** 0.5
+		cube_side = int(cube_vol ** (1 / 3))
+		self.avg_pool = nn.AdaptiveAvgPool2d(cube_side)
+		self.conv_down = nn.LazyConv2d(cube_side, kernel_size=1, padding=0, bias=True)
+		new_size = cube_side ** 3
 		self.linear_part = nn.Sequential()
 		AppLog.info(f'The size is {new_size}')
 		while new_size >= 2:
 			down_size = new_size // 2
 			if down_size == 1:
-				self.linear_part.append(ResLinearBlock(new_size,down_size,last=True))
+				self.linear_part.append(ResLinearBlock(new_size, down_size, last=True))
 				break
 			else:
-				self.linear_part.append(ResLinearBlock(new_size,down_size,last=False))
+				self.linear_part.append(ResLinearBlock(new_size, down_size, last=False))
 			new_size = down_size
 		self.all_ops = nn.Sequential(self.avg_pool, self.conv_down, nn.Flatten(), self.linear_part)
 
@@ -170,11 +168,11 @@ class CodecSubBlock(nn.Module):
 	def __init__(self, in_ch, mid_ch, out_ch, kernel_size):
 		super().__init__()
 		self.input_compress = nn.Conv2d(in_ch, mid_ch, kernel_size=1, padding=0,
-		                                bias=False) if in_ch != mid_ch else nn.Identity()
+				bias=False) if in_ch != mid_ch else nn.Identity()
 		conv1, conv2 = create_sep_kernels(mid_ch, mid_ch, kernel_size)
 		self.output_compress = nn.Conv2d(mid_ch, out_ch, kernel_size=1, padding=0)
 		self.active_path = nn.Sequential(self.input_compress, conv1, conv2, nn.BatchNorm2d(mid_ch), nn.Mish(),
-		                                 self.output_compress)
+				self.output_compress)
 
 	def forward(self, x):
 		return self.active_path(x)
