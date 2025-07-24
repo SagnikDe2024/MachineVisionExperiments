@@ -390,10 +390,29 @@ def calcParamsForMid(in_ch,out_ch, kernek_stack : list[list[int]], param_max):
 
 
 if __name__ == '__main__':
+
+	in_ch = 161
+	out_ch = 256
+
+	m = calcParamsForMid(in_ch, out_ch, [[1, 3, 5] for _ in range(3)], 25 * in_ch * out_ch)
+	mid_ch = round(m)
+	AppLog.info(f'Encoder middle channel : {m} , {mid_ch}')
+
+
+	stack_layer = CodecMultiKernelStack(in_ch, mid_ch, out_ch, (3, [1, 3, 5]))
+	# stack_layer = EncoderNKernelsBlock(161, 256, [1, 3, 5], 20)
+	AppLog.info(f'Stacked Encoder : {stack_layer}')
+	summary(stack_layer, [(12, in_ch, 40, 40)])
+	# poolS = PoolSelector(127)
+	# summary(poolS, [(12, 256, 40, 40)])
+
+	# For stacked.
+	# m (c k_1 + c + 2 k_c + 2 o + 1) + m^2 (2 k_s + l - 1) + o
+
 	# chn =[64, 128, 192, 256]
 	# chn.reverse()
 	# dec = Encoder(chn)
 	# enc = Encoder(64, 256, 6, 1 / 16)
-	enc = ImageCodec(64, 256, 64, 7, 6,downsample=(256*2/3)**(-0.5))
+	# enc = ImageCodec(64, 256, 64, 7, 6,downsample=(256*2/3)**(-0.5))
 	# AppLog.info(f'Encoder : {enc}')
-	summary(enc, [(12, 3, 256, 256)])
+	# summary(enc, [(12, 3, 256, 256)])
