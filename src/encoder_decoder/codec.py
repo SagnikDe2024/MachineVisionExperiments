@@ -162,6 +162,22 @@ class EncoderLayer1stPart2(nn.Module):
 
 		return torch.cat(result, dim=1)
 
+class ResLinearBlock(nn.Module):
+	def __init__(self, in_ch, out_ch, last=False):
+		super().__init__()
+		self.linear = nn.Linear(in_ch, out_ch, bias=False)
+		self.bn = nn.BatchNorm1d(out_ch)
+		self.act = nn.Mish() if not last else nn.Sigmoid()
+		self.passthrough = nn.AdaptiveAvgPool1d(out_ch)
+		self.last = last
+
+	def forward(self, x):
+		x_p = self.passthrough(x)
+		x_l = self.linear(x)
+		x_bn = self.bn(x_l)
+		x_act = self.act(x_bn)
+		with_res = x_act + x_p if not self.last else x_act
+		return with_res
 
 
 class PoolSelector(nn.Module):
@@ -176,16 +192,11 @@ class PoolSelector(nn.Module):
 		AppLog.info(f'The size is {new_size}')
 		while new_size >= 2:
 			down_size = new_size // 2
-			lin = nn.Linear(new_size, down_size, bias=False)
-			norm = nn.BatchNorm1d(down_size)
-			self.linear_part.append(lin)
-			self.linear_part.append(norm)
-
 			if down_size == 1:
-				self.linear_part.append(nn.Sigmoid())
+				self.linear_part.append(ResLinearBlock(new_size,down_size,last=True))
 				break
 			else:
-				self.linear_part.append(nn.Mish())
+				self.linear_part.append(ResLinearBlock(new_size,down_size,last=False))
 			new_size = down_size
 		self.all_ops = nn.Sequential(self.avg_pool, self.conv_down, nn.Flatten(), self.linear_part)
 
