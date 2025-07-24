@@ -79,6 +79,43 @@ class EncoderBlockWithPassthrough(nn.Module):
 		return active_res, x
 
 
+# Let c_out/c_in = j where j > 1 (for an encoder)
+# Now for compute reasons the features are compressed to m features, convolved, normed, activated and the output is squeezed again.
+# Let c <- c_in and c j <- c_out.
+# The operation is as follows:
+# c [1 x 1] m -> m [ks x 1] m -> m [1 x ks] (m) -> batchnorm -> activate -> (m) [1 x 1 + 1 (for bias)] (c j/n)
+# Here ks is the kernel size, ks = 2*k-1, where k = 0,1,2 ... for ks as 1,3,5 etc.
+# Total learnable params = c*m + m^2*ks + m j c/n  + batchnorm (2 * m) +  (j c / n)
+
+# If there are n kernels we have
+# c*m*n + 2*m^2*(ks_1 + ks_2 ... ks_n) + 2*m*n (batchnorm) + m*j*c + j*c (bias term)
+# => 2*m^2*(ks_1 + ks_2 ... ks_n) + m*(c*n + 2*n + j*c) + j*c
+# Let P we the total number of params we need. Then we have
+# 2*m^2*(ks_1 + ks_2 ... ks_n) + m*(c*n + 2*n + j*c) + j*c == P
+# This is a of type quadratic eq. A m^2 + B m + C == 0
+# Here A = 2*(ks_1 + ks_2 ... ks_n), B = (c*n + 2*n + j*c) , C = j*c - P
+
+
+def calculate_intermediate_ch(input_channels, kernels, max_params, output_channels):
+	A = 2*(sum(kernels))
+	n = len(kernels)
+	c = input_channels
+	j = output_channels / input_channels
+	B = (c * n + 2 * n + j * c)
+	C = j * c - max_params
+	m = (-B + (B ** 2 - 4 * A * C) ** 0.5) / (2 * A)
+	m_in = round(m)
+	return m_in, n
+
+
+def getEncoderNKernelsBlock(input_channels, output_channels, kernels : list[int], max_params=-1):
+	if max_params == -1:
+		max_params = 9 * input_channels * output_channels
+	max_params = max_params - (
+				input_channels * output_channels + output_channels) if input_channels != output_channels else max_params
+	m_in, n = calculate_intermediate_ch(input_channels, kernels, max_params, output_channels)
+
+
 class EncoderLayer3Conv(nn.Module):
 	def __init__(self, input_channels, output_channels, num_kernels):
 		super().__init__()
@@ -338,6 +375,18 @@ def encode_decode_from_model(model, data):
 	final_res, latent = model(data)
 	final_res = scale_decoder_data(final_res)
 	return final_res, latent
+
+def calcParamsForMid(in_ch,out_ch, kernek_stack : list[list[int]], param_max):
+	k1 = len(kernek_stack[0])
+	kc = sum( len(ks) for ks in kernek_stack )
+	ks = sum( sum(ks) for ks in kernek_stack )
+	l = len(kernek_stack)
+
+	B = (in_ch*k1 + in_ch + 2*kc + 2*out_ch + 1)
+	A = (2*ks + l - 1)
+	C = out_ch - param_max
+	m = (-B + (B**2 - 4*A*C) ** 0.5) / (2*A)
+	return m
 
 
 if __name__ == '__main__':
