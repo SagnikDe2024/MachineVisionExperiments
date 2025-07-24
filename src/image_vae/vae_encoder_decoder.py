@@ -1,4 +1,6 @@
 from torch import nn
+from torchinfo import summary
+from torchvision.models import EfficientNet_V2_S_Weights, efficientnet_v2_s
 
 class EncoderVaeLayer1(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -18,3 +20,15 @@ class EncoderLayerVae(nn.Module):
         )
 
 
+
+
+if __name__ == '__main__':
+    model = efficientnet_v2_s(EfficientNet_V2_S_Weights.DEFAULT)
+    # model.features.Conv2dNormActivation = nn.Identity()
+    model.avgpool = nn.Identity()
+    model.classifier = nn.Identity()
+    # for m in model.modules():
+    #     print(f'{m.} , {m}')
+    # model.load_state_dict(Inception_V3_QuantizedWeights)
+    print(model)
+    summary(model, input_size=(1,3, 299, 299))
