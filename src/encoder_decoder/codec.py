@@ -1,11 +1,11 @@
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 from torch import Tensor, nn
 from torch.nn import ModuleDict
 from torch.nn.functional import interpolate
 
-from src.common.common_utils import AppLog, IntermediateChannel, generate_separated_kernels
+from src.common.common_utils import AppLog
 
 
 # class L1BatchNorm2D(nn.Module):
@@ -26,12 +26,12 @@ from src.common.common_utils import AppLog, IntermediateChannel, generate_separa
 
 
 class EncoderLayer(nn.Module):
-	def __init__(self, input_ch, mid_ch, output_ch, stack: list[Tuple[int, int]] | Tuple[int, list[int]]):
+	def __init__(self, input_ch, mid_ch, output_ch, pool_params, stack: list[tuple[int, int]] | tuple[int, list[int]]):
 		super().__init__()
 		self.cnn_stack = CodecMultiKernelStack(input_ch, mid_ch, output_ch, stack)
 		self.poolingAvg = nn.AvgPool2d(kernel_size=2)
 		self.poolingMax = nn.MaxPool2d(kernel_size=2)
-		self.poolSelector = PoolSelector(127)
+		self.poolSelector = PoolSelector(pool_params)
 
 	def forward(self, x: Tensor):
 		x_res = self.cnn_stack(x)
@@ -44,7 +44,7 @@ class EncoderLayer(nn.Module):
 
 
 class DecoderLayer(nn.Module):
-	def __init__(self, input_ch, mid_ch, output_ch, stack: list[Tuple[int, int]] | Tuple[int, list[int]],
+	def __init__(self, input_ch, mid_ch, output_ch, stack: list[tuple[int, int]] | tuple[int, list[int]],
 	             upsample: Optional[int] = 2):
 		super().__init__()
 		self.cnn_stack = CodecMultiKernelStack(input_ch, mid_ch, output_ch, stack)
@@ -74,52 +74,47 @@ def create_sep_kernels(input_channels, output_channels, kernel_size):
 			padding=(padding, 0), bias=False)
 	return conv1, conv2
 
+#
+# class EncoderLayer1stParamAux(nn.Module):
+# 	def __init__(self, in_ch, out_ch, out_ch_end, k_size):
+# 		super().__init__()
+# 		k1_1, k1_2 = generate_separated_kernels(in_ch, out_ch, k_size, IntermediateChannel(in_ch), stride=2,
+# 				switch=True)
+# 		self.activatedk1 = nn.Sequential(k1_1, k1_2, nn.BatchNorm2d(out_ch), nn.Mish())
+# 		k2_1, k2_2 = generate_separated_kernels(in_ch, out_ch, k_size, IntermediateChannel(in_ch), stride=2,
+# 				switch=False)
+# 		self.activatedk2 = nn.Sequential(k2_1, k2_2, nn.BatchNorm2d(out_ch), nn.Mish())
+# 		self.compress = nn.LazyConv2d(out_channels=out_ch_end, kernel_size=1, padding=0, bias=False)
+#
+# 	def forward(self, x):
+# 		x1 = self.activatedk1(x)
+# 		x2 = self.activatedk2(x)
+# 		x_compressed = self.compress(torch.cat([x1, x2], dim=1))
+# 		return x_compressed
 
-class EncoderLayer1stParamAux(nn.Module):
-	def __init__(self, in_ch, out_ch, out_ch_end, k_size):
+
+class Encoder1stLayer(nn.Module):
+	def __init__(self, input_channels,output_channels, pool_params, kernels=1):
 		super().__init__()
-		k1_1, k1_2 = generate_separated_kernels(in_ch, out_ch, k_size, IntermediateChannel(in_ch), stride=2,
-				switch=True)
-		self.activatedk1 = nn.Sequential(k1_1, k1_2, nn.BatchNorm2d(out_ch), nn.Mish())
-		k2_1, k2_2 = generate_separated_kernels(in_ch, out_ch, k_size, IntermediateChannel(in_ch), stride=2,
-				switch=False)
-		self.activatedk2 = nn.Sequential(k2_1, k2_2, nn.BatchNorm2d(out_ch), nn.Mish())
-		self.compress = nn.LazyConv2d(out_channels=out_ch_end, kernel_size=1, padding=0, bias=False)
+		mid_channels = output_channels // 2
+		kernel_list = [(2*k + 1) for k in range(1,kernels+1)]
+		self.front_layer = nn.Sequential(nn.Conv2d(input_channels, mid_channels, 3,padding=1,bias=False),nn.BatchNorm2d(mid_channels),nn.Mish())
+		self.passthrough = nn.Conv2d(input_channels, mid_channels, kernel_size=1)
+		self.second_layer = CodecMultiKernelBlock(mid_channels,mid_channels, output_channels, kernel_list)
+		self.poolingAvg = nn.AvgPool2d(kernel_size=2)
+		self.poolingMax = nn.MaxPool2d(kernel_size=2)
+		self.poolSelector = PoolSelector(pool_params)
 
 	def forward(self, x):
-		x1 = self.activatedk1(x)
-		x2 = self.activatedk2(x)
-		x_compressed = self.compress(torch.cat([x1, x2], dim=1))
-		return x_compressed
-
-
-class EncoderLayer1stPart2(nn.Module):
-	def __init__(self, output_channels, kernels=1):
-		super().__init__()
-		input_channels = 3
-		out_ch = output_channels
-		out_ch_end = round(output_channels / kernels)
-		if kernels > 1:
-			k = kernels
-			out_ch = round(-(9 * (2 * k ** 2 + k * (4 - 3 * out_ch) - 6)) / (6 * k ** 2 + 12 * k + 2 * out_ch + 9))
-		print(f'Output channels {out_ch}')
-		if kernels == 1:
-			self.k3 = nn.Sequential(nn.Conv2d(input_channels, out_ch, 3, padding=1, bias=False),
-					nn.BatchNorm2d(out_ch), nn.Mish(), nn.MaxPool2d(2))
-		else:
-			self.k3 = nn.Sequential(nn.Conv2d(input_channels, out_ch, 3, padding=1, bias=False),
-					nn.BatchNorm2d(out_ch), nn.Mish(), nn.MaxPool2d(2),
-					nn.LazyConv2d(out_ch_end, 1, padding=0, bias=False))
-		for k_o in range(2, kernels + 1):
-			k_size = 2 * k_o + 1
-			self.add_module(f'k{k_size}', EncoderLayer1stParamAux(input_channels, out_ch, out_ch_end, k_size))
-
-	def forward(self, x):
-		result = [self.k3(x)]
-		for k in self.children():
-			result.append(k(x))
-
-		return torch.cat(result, dim=1)
+		activate = self.front_layer(x)
+		passthrough = self.passthrough(x)
+		x_res = self.second_layer(activate + passthrough)
+		selected = self.poolSelector(x_res)
+		selected_dim = selected.view(selected.shape[0], selected.shape[1], 1, 1)
+		pooledAvg = self.poolingAvg(x_res)
+		pooledMax = self.poolingMax(x_res)
+		pooled = pooledAvg * selected_dim + pooledMax * (1 - selected_dim)
+		return pooled
 
 
 class ResLinearBlock(nn.Module):
@@ -202,10 +197,11 @@ class CodecMultiKernelBlock(nn.Module):
 
 
 class CodecMultiKernelStack(nn.Module):
-	def __init__(self, input_ch, mid_ch, output_ch, stack: list[Tuple[int, int]] | Tuple[int, list[int]]):
+	def __init__(self, input_ch, mid_ch, output_ch, stack: list[tuple[int, int]] | tuple[int, list[int]]):
 		super().__init__()
-		if stack is list[Tuple[int, int]]:
-			_stack = [list(range(k[0], k[1] * 2 + k[0], 2)) for k in stack]
+		AppLog.info(f'stack {stack}')
+		if type(stack) is list(tuple[int, int]) or type(stack) is list:
+			_stack = [[ k[0] + 2*y for y in range(k[1])] for k in stack]
 		else:
 			kst = stack[1]
 			stacks = stack[0]
@@ -225,8 +221,6 @@ class CodecMultiKernelStack(nn.Module):
 				else:
 					enc_block = CodecMultiKernelBlock(mid_ch, mid_ch, mid_ch, ks)
 				self.kernel_stack.append(enc_block)
-		self.poolingAvg = nn.AvgPool2d(kernel_size=2)
-		self.poolingMax = nn.MaxPool2d(kernel_size=2)
 
 	def forward(self, x):
 		x_res = self.kernel_stack(x)
