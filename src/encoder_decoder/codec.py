@@ -2,8 +2,9 @@ from typing import Optional
 
 import torch
 from torch import Tensor, nn
-from torch.nn import ModuleDict
+from torch.nn import Conv2d, ModuleDict
 from torch.nn.functional import interpolate
+from torchinfo import summary
 
 from src.common.common_utils import AppLog
 
@@ -45,10 +46,11 @@ class EncoderLayer(nn.Module):
 
 class DecoderLayer(nn.Module):
 	def __init__(self, input_ch, mid_ch, output_ch, stack: list[tuple[int, int]] | tuple[int, list[int]],
-	             upsample: Optional[int] = 2):
+	             upsample: Optional[int] = 2,last=False):
 		super().__init__()
-		self.cnn_stack = CodecMultiKernelStack(input_ch, mid_ch, output_ch, stack)
+		self.cnn_stack = CodecMultiKernelStack(input_ch, mid_ch, output_ch, stack) if not last else CodecMultiKernelStack(input_ch, mid_ch, mid_ch, stack[:-1])
 		self.upscale = nn.Upsample(scale_factor=upsample, mode='bicubic') if upsample > 1 else None
+		self.last_layer = nn.Sequential(nn.Conv2d(mid_ch, output_ch, kernel_size=1),nn.Tanh()) if last else nn.Identity()
 		self.h = 128
 		self.w = 128
 
@@ -62,7 +64,7 @@ class DecoderLayer(nn.Module):
 		else:
 			upsampled: Tensor = interpolate(x, size=(self.h, self.w), mode='bicubic')
 		cnn_res = self.cnn_stack(upsampled)
-		return cnn_res
+		return self.last_layer(cnn_res)
 
 
 def create_sep_kernels(input_channels, output_channels, kernel_size):
@@ -74,23 +76,6 @@ def create_sep_kernels(input_channels, output_channels, kernel_size):
 			padding=(padding, 0), bias=False)
 	return conv1, conv2
 
-#
-# class EncoderLayer1stParamAux(nn.Module):
-# 	def __init__(self, in_ch, out_ch, out_ch_end, k_size):
-# 		super().__init__()
-# 		k1_1, k1_2 = generate_separated_kernels(in_ch, out_ch, k_size, IntermediateChannel(in_ch), stride=2,
-# 				switch=True)
-# 		self.activatedk1 = nn.Sequential(k1_1, k1_2, nn.BatchNorm2d(out_ch), nn.Mish())
-# 		k2_1, k2_2 = generate_separated_kernels(in_ch, out_ch, k_size, IntermediateChannel(in_ch), stride=2,
-# 				switch=False)
-# 		self.activatedk2 = nn.Sequential(k2_1, k2_2, nn.BatchNorm2d(out_ch), nn.Mish())
-# 		self.compress = nn.LazyConv2d(out_channels=out_ch_end, kernel_size=1, padding=0, bias=False)
-#
-# 	def forward(self, x):
-# 		x1 = self.activatedk1(x)
-# 		x2 = self.activatedk2(x)
-# 		x_compressed = self.compress(torch.cat([x1, x2], dim=1))
-# 		return x_compressed
 
 
 class Encoder1stLayer(nn.Module):
@@ -159,7 +144,7 @@ class PoolSelector(nn.Module):
 		return self.all_ops(x)
 
 
-class CodecSubBlock(nn.Module):
+class CodecSubBlockDepthSep(nn.Module):
 	def __init__(self, in_ch, mid_ch, out_ch, kernel_size):
 		super().__init__()
 		self.input_compress = nn.Conv2d(in_ch, mid_ch, kernel_size=1, padding=0,
@@ -172,6 +157,17 @@ class CodecSubBlock(nn.Module):
 	def forward(self, x):
 		return self.active_path(x)
 
+class CodecSubBlockFull(nn.Module):
+	def __init__(self, in_ch, mid_ch, out_ch, kernel_size):
+		super().__init__()
+		self.input_compress = nn.Conv2d(in_ch, mid_ch, kernel_size=1, padding=0,
+				bias=False) if in_ch != mid_ch else nn.Identity()
+		self.conv = Conv2d(mid_ch, mid_ch, kernel_size=kernel_size, padding=kernel_size // 2,bias=False)
+		self.output_compress = nn.Conv2d(mid_ch, out_ch, kernel_size=1, padding=0)
+		self.active_path = nn.Sequential(self.input_compress, self.conv, nn.BatchNorm2d(mid_ch), nn.Mish(),self.output_compress)
+
+	def forward(self, x):
+		return self.active_path(x)
 
 class CodecMultiKernelBlock(nn.Module):
 	def __init__(self, in_channels, middle_ch, out_channels, kernels: list[int]):
@@ -184,7 +180,7 @@ class CodecMultiKernelBlock(nn.Module):
 		self.kernels = ModuleDict()
 		for i, k_s in enumerate(kernels):
 			out_each = out_each_ch[i + 1] - out_each_ch[i]
-			self.kernels[f'k{i}'] = CodecSubBlock(in_channels, middle_ch, out_each, k_s)
+			self.kernels[f'k{i}'] = CodecSubBlockDepthSep(in_channels, middle_ch, out_each, k_s)
 
 	def forward(self, x):
 		evaluated = []
@@ -196,12 +192,17 @@ class CodecMultiKernelBlock(nn.Module):
 		return concat_activated + passthrough
 
 
+def calc_stack(stack):
+	_stack = [[k[0] + 2 * y for y in range(k[1])] for k in stack]
+	return _stack
+
+
 class CodecMultiKernelStack(nn.Module):
 	def __init__(self, input_ch, mid_ch, output_ch, stack: list[tuple[int, int]] | tuple[int, list[int]]):
 		super().__init__()
 		AppLog.info(f'stack {stack}')
 		if type(stack) is list(tuple[int, int]) or type(stack) is list:
-			_stack = [[ k[0] + 2*y for y in range(k[1])] for k in stack]
+			_stack = calc_stack(stack)
 		else:
 			kst = stack[1]
 			stacks = stack[0]
@@ -225,3 +226,95 @@ class CodecMultiKernelStack(nn.Module):
 	def forward(self, x):
 		x_res = self.kernel_stack(x)
 		return x_res
+
+
+
+
+def calc_middle(c_in, c_out, kernel_stack, total_params):
+	kernel_sum = sum([sum(ks_in_stack) for ks_in_stack in kernel_stack])
+	kernel_count = sum([len(ks_in_stack) for ks_in_stack in kernel_stack])
+	kernel_count_layer_1 = len(kernel_stack[0])
+	stacks = len(kernel_stack)
+	A = 2*kernel_sum + stacks - 1
+	B = c_in*(kernel_count_layer_1 +1) + 2*kernel_count + 2*c_out + 1
+	C = c_out - total_params
+	mid_ch = (-B + (B**2 - 4*A*C)**0.5)/(2*A)
+	return mid_ch
+
+
+class SimpleEncoder4Layer(nn.Module):
+	def __init__(self, input_ch, output_ch, kernels_per_stack, mid_ch_layer_inc, stack_layer_ramp_inc, kernel_stack_layer_inc, pool_params):
+		super().__init__()
+		calculated_ramp_values =  [(input_ch*((output_ch/input_ch) ** (i/3)), mid_ch_layer_inc(i/3), stack_layer_ramp_inc(i/3)) for i in range(4)]
+		rounded = list(map(lambda x: [round(x[0]),round(x[1]),round(x[2])] , calculated_ramp_values))
+		channels, mid_channels, stacks = tuple(map(list,zip(*rounded)))
+		ks = kernels_per_stack
+		AppLog.info(f'Encoder4Layer: ch={channels} ks={ks} m={mid_channels} s={stacks} ')
+		kernel_bases_layer_stack = [ [ round(kernel_stack_layer_inc(s/(stacks[l]-1), l/3))*2 + 1  for s in range(stacks[l]) ] for l in range(4) ]
+		for l in range(4):
+			AppLog.info(f'Kernel bases for layer {l+1} are {kernel_bases_layer_stack[l]}')
+
+		self.encoder_layers = nn.Sequential()
+		for i in range(4):
+			if i == 0:
+				enc = Encoder1stLayer(3, channels[i], pool_params, ks)
+				self.encoder_layers.append(enc)
+				continue
+			else:
+				kernel_ranges = list(map(lambda x : (x,ks),  kernel_bases_layer_stack[i]))
+				enc = EncoderLayer(channels[i-1], mid_channels[i], channels[i], pool_params, kernel_ranges)
+				self.encoder_layers.append(enc)
+
+	def forward(self, x):
+		x_res = self.encoder_layers(x)
+		return x_res
+
+
+class SimpleDecoder4Layer(nn.Module):
+	def __init__(self, input_ch, output_ch, kernels_per_stack, mid_ch_layer_dec, stack_layer_dec, kernel_stack_layer_dec):
+		super().__init__()
+		calculated_ramp_values = [
+				(input_ch*((output_ch / input_ch) ** (i / 3)), mid_ch_layer_dec(i/3), stack_layer_dec(i/3)) for i in
+				range(0, 4)]
+		rounded = list(map(lambda x: [round(x[0]), round(x[1]), round(x[2])], calculated_ramp_values))
+		channels, mid_channels, stacks = tuple(map(list,zip(*rounded)))
+		ks = kernels_per_stack
+		AppLog.info(f'Decoder4Layer: ch={channels} ks={ks} m={mid_channels} s={stacks} ')
+		kernel_bases_layer_stack = [ [ round(kernel_stack_layer_dec(s/(stacks[l]-1), l/3))*2 + 1   for s in range(stacks[l]) ] for l in range(4) ]
+		for l in range(4):
+			AppLog.info(f'Kernel bases for layer {l+1} are {kernel_bases_layer_stack[l]}')
+
+		self.decoder_layers = nn.Sequential()
+		for i in range(4):
+			kernel_ranges = list(map(lambda x: (x, ks), kernel_bases_layer_stack[i]))
+			if i == 3:
+				dec = DecoderLayer(channels[i], mid_channels[i], 3, kernel_ranges, last=True)
+				self.decoder_layers.append(dec)
+				continue
+			dec = DecoderLayer(channels[i], mid_channels[i], channels[i+1], kernel_ranges)
+			self.decoder_layers.append(dec)
+
+	def forward(self, x):
+		x_res = self.decoder_layers(x)
+		# x_act = self.last_layer_act(x_res)
+		return x_res
+
+class SimpleCodec(nn.Module):
+	def __init__(self, encoder, decoder):
+		super().__init__()
+		self.encoder = encoder
+		self.decoder = decoder
+
+	def forward(self, x):
+		x_enc = self.encoder(x)
+		x_dec = self.decoder(x_enc)
+		return x_dec,x_enc
+
+if __name__ == '__main__':
+
+	enc = SimpleEncoder4Layer(55, 256, 2, lambda l: 32+16*l , lambda l: 2+l*2*3, lambda s,l: 1 + s*l*1, 512)
+	dec = SimpleDecoder4Layer(256, 48, 3, lambda l: 24+16*(1-l), lambda l: 2+(1-l)*3*1.5, lambda s,l: 0)
+	# decl = DecoderLayer(256,48,140, (3,[1,3,5]))
+	codec = SimpleCodec(enc, dec)
+	# print(de)
+	summary(codec, (12,3, 256, 256))
