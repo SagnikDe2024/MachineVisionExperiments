@@ -7,16 +7,17 @@ import pandas as pd
 import torch
 import torchvision
 from PIL import Image
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import resize
-from torchvision.transforms.v2 import CenterCrop, RandomCrop, RandomHorizontalFlip, RandomResize, RandomVerticalFlip, \
-	Resize
+from torchvision.transforms.v2 import FiveCrop, RandomCrop, RandomHorizontalFlip, RandomResize, \
+	RandomVerticalFlip, Resize
 
 from src.common.common_utils import AppLog, acquire_image
+from src.encoder_decoder.codec import get_simple_encoder_decoder
 from src.encoder_decoder.image_reconstruction_loss import MultiScaleGradientLoss
-from src.image_encoder_decoder.image_codec import ImageCodec, encode_decode_from_model, prepare_encoder_data
+from src.image_encoder_decoder.image_codec import encode_decode_from_model, prepare_encoder_data
 
 
 class ImageFolderDataset(Dataset):
@@ -43,8 +44,8 @@ def get_data(batch_size=16, minsize=272):
 			RandomCrop(minsize), RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5),
 	])
 	transform_validate = torchvision.transforms.Compose([
-			Resize(minsize, interpolation=InterpolationMode.BILINEAR),
-			CenterCrop(minsize),
+			Resize(round(minsize * 3.5), interpolation=InterpolationMode.BILINEAR),
+			FiveCrop(minsize),
 	])
 
 	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform_train)
@@ -58,7 +59,8 @@ def get_data(batch_size=16, minsize=272):
 class TrainEncoderAndDecoder:
 	def __init__(self, model, optimizer, train_device, cycle_sch, save_training_fn, starting_epoch, ending_epoch,
 	             vloss=float('inf')):
-		loss_fn = MultiScaleGradientLoss(train_device).requires_grad_(False)
+		loss_fn = MultiScaleGradientLoss(train_device, max_downsample=1.5, steps_to_downsample=2).requires_grad_(False)
+		# loss_fn = nn.L1Loss()
 		self.device = train_device
 		self.model_orig = model
 		self.model = torch.compile(self.model_orig, mode="max-autotune").to(self.device)
@@ -71,6 +73,7 @@ class TrainEncoderAndDecoder:
 
 		self.trained_one_batch = False
 		self.loss_func = torch.compile(loss_fn, mode="max-autotune").to(self.device)
+		# self.loss_func = loss_fn
 		# self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
 		self.scheduler = cycle_sch
 
@@ -94,7 +97,7 @@ class TrainEncoderAndDecoder:
 			if not self.trained_one_batch:
 				self.trained_one_batch = True
 				AppLog.info(f'Training loss: {tloss}, batch: {batch_idx + 1}')
-		return tloss / pics_seen
+		return tloss,pics_seen
 
 	def get_loss_by_inference(self, data):
 		with torch.autocast(device_type=self.device):
@@ -110,28 +113,31 @@ class TrainEncoderAndDecoder:
 		pics_seen = 0
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
+				# for datum in data:
+				# 	datum.to(self.device)
+				data = torch.concat(data, dim=0)
 				data = data.to(self.device)
 				loss = self.get_loss_by_inference(data)
 				vloss += loss.item()
 				pics_seen += data.shape[0]
-		return vloss / pics_seen
+		return vloss,pics_seen
 
 	def train_and_evaluate(self, train_loader, val_loader):
 
 		AppLog.info(f'Training from {self.current_epoch} to {self.ending_epoch} epochs.')
 		while self.current_epoch < self.ending_epoch:
-			train_loss = self.train_one_epoch(train_loader)
-			val_loss = self.evaluate(val_loader)
+			train_loss,p_t = self.train_one_epoch(train_loader)
+			val_loss,p_v = self.evaluate(val_loader)
 			self.scheduler.step()
 			# self.scheduler.step(val_loss,epoch=epoch)
 			AppLog.info(
-					f'Epoch {self.current_epoch + 1}: Training loss = {train_loss:.3e}, Validation Loss = '
-					f'{val_loss:.3e}, '
+					f'Epoch {self.current_epoch + 1}: Training loss = {train_loss:.3e} ({p_t} samples), Validation Loss = '
+					f'{val_loss:.3e} ({p_v} samples), '
 					f'lr = {(self.scheduler.get_last_lr()[0]):.3e}')
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
 				self.save_training_fn(self.model_orig, self.optimizer, self.current_epoch + 1, val_loss,
-				                      self.scheduler)
+						self.scheduler)
 			self.current_epoch += 1
 
 
@@ -167,9 +173,8 @@ def save_training_state(location, model, optimizer, epoch, vloss, scheduler=None
 		scheduler_state = None
 	else:
 		scheduler_state = scheduler.state_dict()
-	torch.save({'model_state_dict'    : model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(),
-	            'epoch'               : epoch, 'scheduler_state_dict': scheduler_state, 'v_loss': vloss,
-	            'v_loss'          : vloss, }, location, )
+	torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(),
+	            'epoch'           : epoch, 'scheduler_state_dict': scheduler_state, 'v_loss': vloss, }, location, )
 
 
 def load_training_state(location, model, optimizer=None, scheduler=None):
@@ -197,10 +202,10 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 
 	train_loader, val_loader = get_data(batch_size=batch_size, minsize=size)
 	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p, sch: save_training_state(save_location, enc_p,
-	                                                                                         optimizer_p, epoch_p,
-	                                                                                         vloss_p, sch)
-	cyc_sch = CosineAnnealingLR(optimizer, 10, lr_min)
-
+			optimizer_p, epoch_p, vloss_p, sch)
+	# cyc_sch = CosineAnnealingLR(optimizer, 10, lr_min)
+	t0 = 5
+	cyc_sch = CosineAnnealingWarmRestarts(optimizer, t0, 2, lr_min)
 	if os.path.exists(save_location) and not start_new:
 		if lr_max_arg > 0 and lr_min_arg > 0:
 			enc, optimizer, epoch, vloss, scheduler = load_training_state(save_location, enc, optimizer, cyc_sch)
@@ -211,19 +216,23 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 		if reset_vloss:
 			vloss = float('inf')
 			epoch = 0
-		AppLog.info(f'(Re)Starting from epoch {epoch} with vloss {vloss:.3e} and scheduler {scheduler}, using device {traindevice}')
+		AppLog.info(
+				f'(Re)Starting from epoch {epoch} with vloss {vloss:.3e} and scheduler {scheduler}, using device '
+				f'{traindevice}')
 
-		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler, save_training_fn, epoch, 50, vloss)
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, scheduler, save_training_fn, epoch, 75, vloss)
 		trainer.train_and_evaluate(train_loader, val_loader)
 	else:
-		AppLog.info(f'Training from scratch. Using lr_min={lr_min}, lr_max={lr_max} and scheduler {cyc_sch}, using device {traindevice}')
-		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, cyc_sch, save_training_fn, 0, 50)
+		AppLog.info(
+				f'Training from scratch. Using lr_min={lr_min}, lr_max={lr_max} and scheduler {cyc_sch}, using device '
+				f'{traindevice}')
+		trainer = TrainEncoderAndDecoder(enc, optimizer, traindevice, cyc_sch, save_training_fn, 0, 75)
 		trainer.train_and_evaluate(train_loader, val_loader)
 
 
 def getImageEncoderDecoder():
-	enc = ImageCodec(64, 256, 64, 7, 6, downsample=(256 * 2 / 3) ** (-0.5))
-	return enc
+	codec = get_simple_encoder_decoder()
+	return codec
 
 
 def test_and_show(size):
