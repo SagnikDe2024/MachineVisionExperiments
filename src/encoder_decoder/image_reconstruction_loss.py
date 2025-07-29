@@ -27,7 +27,6 @@ def get_gradient_weights():
 	return gradient_convs
 
 
-
 class MultiScaleGradientLoss(nn.Module):
 	def __init__(self, device_used, max_downsample=8, steps_to_downsample=4):
 		super().__init__()
@@ -38,11 +37,11 @@ class MultiScaleGradientLoss(nn.Module):
 		self.max_downsample = md
 		self.steps_to_downsample = steps_to_downsample
 		self.downsample_ratio = md ** (-1 / (steps - 1))
-		self.loss_scales = [md ** (step / (steps - 1)) for step in range(steps)]
-		loss_weights_r = [1 / (step * 0.5 + 1) for step in range(steps)]
-		self.loss_weights = torch.tensor(loss_weights_r)
-		AppLog.info(f"Loss scales: {self.loss_weights}, scales: {self.loss_scales}")
-		self.loss2 = nn.MSELoss()
+		# self.loss_scales = [md ** (step / (steps - 1)) for step in range(steps)]
+		# loss_weights_r = [1 / (step * 0.5 + 1) for step in range(steps)]
+		# self.loss_weights = torch.tensor(loss_weights_r)
+		# AppLog.info(f"Loss scales: {self.loss_weights}, scales: {self.loss_scales}")
+		self.loss_fn = nn.L1Loss()
 		self.gradient_convs = get_gradient_weights()
 		self.downsampler = nn.UpsamplingBilinear2d(scale_factor=self.downsample_ratio)
 
@@ -55,37 +54,39 @@ class MultiScaleGradientLoss(nn.Module):
 		diff_y = torch.diff(sc_image, 1, -2)
 		return [diff_x, diff_y]
 
-
-	def get_weighted_gradient_loss(self, scale, weight, inferred_image, target_image):
-		t_w = weight.to(self.dummy_param.device)
+	def get_weighted_gradient_loss(self, weight, inferred_image, target_image):
+		# t_w = weight.to(self.dummy_param.device)
 		# t_w = t_w.detach().clone()
+		t_w = weight
 		target_gradients = self.get_gradients(target_image)
 		inferred_gradients = self.get_gradients(inferred_image)
 		inferred_and_target_gradients = zip(inferred_gradients, target_gradients)
-		mse_losses = map(lambda inf_target_grad: self.loss2(inf_target_grad[0], inf_target_grad[1]) * t_w,
-		                 inferred_and_target_gradients)
+		mse_losses = map(lambda inf_target_grad: self.loss_fn(inf_target_grad[0], inf_target_grad[1]) * t_w,
+				inferred_and_target_gradients)
 		summed = reduce(lambda x, y: x + y, mse_losses)
 		return summed
 
 	def forward(self, inferred_image, target_image):
-		basic_loss = self.loss2(inferred_image, target_image)
-		loss_weights = self.loss_weights.to(self.device_used)
+		basic_loss = self.loss_fn(inferred_image, target_image)
+		# loss_weights = self.loss_weights.to(self.device_used)
+		loss_weights = 1
 		for step in range(self.steps_to_downsample):
-			loss_w = loss_weights[step]
+			# loss_w = loss_weights[step]
+			loss_w = 1
 			inf_gr = self.get_gradients(inferred_image)
 			tar_gr = self.get_gradients(target_image)
-			gradient_losses = map(lambda inf_tar_grad: self.loss2(inf_tar_grad[0], inf_tar_grad[1]),
-			                      zip(inf_gr, tar_gr))
+			gradient_losses = map(lambda inf_tar_grad: self.loss_fn(inf_tar_grad[0], inf_tar_grad[1]),
+					zip(inf_gr, tar_gr))
 			summed = reduce(lambda x, y: x + y, gradient_losses)
 			basic_loss += summed * loss_w
 			inferred_image = self.downsampler(inferred_image)
 			target_image = self.downsampler(target_image)
 		return basic_loss
-	#
-	#
-	# losses = [self.get_weighted_gradient_loss(sc, w, inferred_image, target_image) for sc, w in
-	#           zip(self.loss_scales, self.loss_weights)]
-	# return reduce(lambda x, y: x + y, losses)
+#
+#
+# losses = [self.get_weighted_gradient_loss(sc, w, inferred_image, target_image) for sc, w in
+#           zip(self.loss_scales, self.loss_weights)]
+# return reduce(lambda x, y: x + y, losses)
 
 
 def funky_reduce(t1, t2):
@@ -193,9 +194,9 @@ class MultiscalePerceptualLoss(nn.Module):
 
 		for steps in range(1, self.steps_to_downsample):
 			inferred_image = interpolate(inferred_image, scale_factor=self.downsample_ratio,
-			                             mode='bilinear')
+					mode='bilinear')
 			target_image = interpolate(target_image, scale_factor=self.downsample_ratio,
-			                           mode='bilinear')
+					mode='bilinear')
 			newloss = self.calc_loss(inferred_image, target_image)
 			loss += newloss
 		return loss
@@ -245,6 +246,8 @@ class ReconstructionLoss(nn.Module):
 		weight = torch.concat([new_weight, new_weight, new_weight], dim=1)
 		ls = mse_loss(inferred_image, target_image, weight=weight)
 		return ls
+
+
 # return self.loss2(inferred_image, target_image,new_weight)
 
 
