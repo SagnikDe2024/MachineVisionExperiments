@@ -227,7 +227,6 @@ class Encoder(nn.Module):
 				continue
 			x, inputs = layer(x, inputs)
 
-		# x = self.activation(x)
 		return x
 
 
@@ -363,8 +362,8 @@ def scale_decoder_data(data):
 
 def encode_decode_from_model(model, data):
 	data = prepare_encoder_data(data)
-	final_res, latent = model(data)
-	final_res = scale_decoder_data(final_res)
+	model_res, latent = model(data)
+	final_res = scale_decoder_data(model_res)
 	return final_res, latent
 
 def calcParamsForMid(in_ch,out_ch, kernek_stack : list[list[int]], param_max):
