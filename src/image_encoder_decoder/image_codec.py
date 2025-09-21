@@ -1,4 +1,4 @@
-from math import lcm
+from math import lcm, ceil
 
 import torch
 from torch import nn
@@ -126,7 +126,7 @@ class Decoder(nn.Module):
 
 		self.layers = layers
 		ratio = (ch_out / ch_in) ** (1 / layers)
-		channels = [round((ch_in * ratio ** i) / 24) * 24 for i in range(layers + 1)]
+		channels = [round((ch_in * ratio ** i)) for i in range(layers + 1)]
 		AppLog.info(f'Decoder channels {channels}')
 		param_compute = channels[-2] * channels[-1] * 4
 
@@ -172,12 +172,13 @@ class Decoder(nn.Module):
 class ImageCodec(nn.Module):
 	def __init__(self, enc_chin, latent_channels, dec_chout, enc_layers=4, dec_layers=4):
 		super().__init__()
+
 		self.encoder = Encoder(enc_chin, latent_channels, layers=enc_layers)
 		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers)
 
-		self.decoder.set_size(512, 512)
-
 	def forward(self, x):
+		nh, nw = torch.ceil(x.shape[-2] / 16) * 16, torch.ceil(x.shape[-1] / 16) * 16
+		x = interpolate(x, size=[nh, nw], mode='nearest-exact')
 		latent = self.encoder.forward(x)
 		self.decoder.set_size(x.shape[2], x.shape[3])
 		final_res = self.decoder(latent)
