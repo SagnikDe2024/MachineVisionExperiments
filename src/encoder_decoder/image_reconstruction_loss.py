@@ -43,7 +43,7 @@ class MultiScaleGradientLoss(nn.Module):
 		# AppLog.info(f"Loss scales: {self.loss_weights}, scales: {self.loss_scales}")
 		self.loss_fn = nn.L1Loss()
 		self.gradient_convs = get_gradient_weights()
-		self.downsampler = nn.UpsamplingBilinear2d(scale_factor=self.downsample_ratio)
+		self.downsampler = nn.UpsamplingNearest2d(scale_factor=self.downsample_ratio)
 
 	def get_gradients(self, sc_image):
 		gradients = []
