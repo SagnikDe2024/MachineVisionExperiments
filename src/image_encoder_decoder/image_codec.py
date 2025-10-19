@@ -68,6 +68,16 @@ class SimpleDenseLayer(nn.Module):
 # This is a of type quadratic eq. A m^2 + B m + C == 0
 # Here A = 2*(ks_1 + ks_2 ... ks_n), B = (c*n + 2*n + j*c) , C = j*c - P
 
+def fill_as_req(img,size_mul=16):
+	h,w = img.shape[-2:]
+	h_new = ceil(h / size_mul) * size_mul
+	w_new = ceil(w / size_mul) * size_mul
+	left = (w_new - w) // 2
+	right = w_new - w - left
+	bottom = (h_new - h) // 2
+	top = h_new - h - bottom
+	img_new = pad(img, [left,top,right,bottom],padding_mode='symmetric')
+	return img_new,h,w
 
 def calculate_intermediate_ch(input_channels, kernels, max_params, output_channels):
 	A = 2*(sum(kernels))
