@@ -230,16 +230,11 @@ class ImageCodec(nn.Module):
 
 
 def prepare_encoder_data(data):
-	# mean = torch.mean(data, dim=(2, 3), keepdim=True)
-	# abs_diff = torch.abs(data - mean)
-	# abs_diff_mean = torch.mean(abs_diff, dim=(2, 3), keepdim=True)
-	# return (data - mean) / (abs_diff_mean + 1e-7)
 	return (data - 0.5) / 0.5
 
 
 def scale_decoder_data(data):
-	sc1 = data * 256 / 255
-	sc2 = sc1*0.5+0.5
+	sc2 = data*0.5+0.5
 	return sc2
 
 
