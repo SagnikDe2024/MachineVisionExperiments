@@ -153,41 +153,44 @@ def dumb_calc(s, j=2):
 
 
 class Decoder(nn.Module):
-	def __init__(self, ch_in, ch_out, layers=4) -> None:
+	def __init__(self, ch_in_dec, ch_out_dec, layers=5, in_group=32) -> None:
 		super().__init__()
-
+		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_out_dec, ch_in_dec, 8, 9, layers)
+		channels.reverse()
+		depths.reverse()
+		mid_chs.reverse()
+		layer_group.reverse()
 		self.layers = layers
-		ratio = (ch_out / ch_in) ** (1 / layers)
-		channels = [round((ch_in * ratio ** i)) for i in range(layers + 1)]
-		AppLog.info(f'Decoder channels {channels}')
-		param_compute = channels[-2] * channels[-1] * 4
 
-		decoder_layers = ModuleDict()
+		AppLog.info(f'Decoder channels {channels}, depths {depths}, mid_chs {mid_chs}')
+
+		all_layers = []
+		self.input_layers = -1
 		for layer in range(layers):
 			ch_in = channels[layer]
 			ch_out = channels[layer + 1]
-
-			s = (layers - layer) + 2
-			mid_ch_calc = round(dumb_calc(s,ratio) * ch_in)
-			total_calc = ch_in * mid_ch_calc + (s * (s + 1) / 2) * 9 * mid_ch_calc ** 2 + (s + 1) * mid_ch_calc * ch_out
-			groups = max(round((total_calc / param_compute) ** 0.5), 1)
-			kernel_list = [3 for _ in range(s)]
-
-			dec_layer = SimpleDenseLayer(mid_ch_calc, ch_out * 4, groups, kernel_list)
-			decoder_layers[f'{layer}'] = dec_layer
-
-		self.decoder_layers = decoder_layers
-		self.size = [512, 512]
-		self.last_activation = nn.Tanh()
+			s = depths[layer]
+			mid_ch_calc = mid_chs[layer]
+			# total_calc = ch_in * mid_ch_calc + (s * (s + 1) / 2) * 9 * mid_ch_calc ** 2 + (s + 1) * mid_ch_calc *
+			# ch_out
+			groups = layer_group[layer]
+			if layer == 0:
+				dec_layer = SimpleDenseLayer(ch_in, mid_ch_calc, ch_out, s, groups, in_groups=in_group,
+				                             out_groups=groups)
+				self.input_layers = dec_layer.in_ch
+			else:
+				dec_layer = SimpleDenseLayer(ch_in, mid_ch_calc, ch_out, s, groups, out_groups=groups)
+			all_layers.append(dec_layer)
+			if layer < layers - 1:
+				upscale = nn.PixelShuffle(2)
+				all_layers.append(upscale)
 
 		self.last_compress = nn.LazyConv2d(out_channels=3, kernel_size=1, padding=0)
-		self.upsample2 = nn.PixelShuffle(2)
 
-	def set_size(self, h, w):
-		self.size = [h, w]
-
-	def forward(self, latent_z):
-		[h, w] = self.size
+		self.last_activation = nn.Tanh()
+		all_layers.append(self.last_compress)
+		all_layers.append(self.last_activation)
+		self.decoder_layers = nn.Sequential(*all_layers)
 
 		z_m = latent_z
 
