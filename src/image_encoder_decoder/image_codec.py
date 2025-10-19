@@ -204,18 +204,16 @@ class Decoder(nn.Module):
 
 
 class ImageCodec(nn.Module):
-	def __init__(self, enc_chin, latent_channels, dec_chout, enc_layers=4, dec_layers=4):
+	def __init__(self, enc_chin, latent_channels, dec_chout, enc_layers=5, dec_layers=5):
 		super().__init__()
 
 		self.encoder = Encoder(enc_chin, latent_channels, layers=enc_layers)
 		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers)
 
-	def forward(self, x):
-		nh, nw = torch.ceil(x.shape[-2] / 16) * 16, torch.ceil(x.shape[-1] / 16) * 16
-		x = interpolate(x, size=[nh, nw], mode='nearest-exact')
-		latent = self.encoder.forward(x)
-		self.decoder.set_size(x.shape[2], x.shape[3])
-		final_res = self.decoder(latent)
+	def forward(self, x, ratio=1.0):
+		latent, h, w = self.encoder.forward(x, ratio=ratio)
+
+		final_res = self.decoder(latent, h, w)
 		return final_res, latent
 
 
