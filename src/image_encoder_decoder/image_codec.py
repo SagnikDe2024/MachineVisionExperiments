@@ -111,7 +111,7 @@ class Encoder(nn.Module):
 		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_in_enc, ch_out_enc, self.min_depth,
 		                                                                        self.max_depth, layers, mid_ch_st=min_mid_ch)
 		AppLog.info(f'Encoder channels {channels}, depths {depths}, mid_chs {mid_chs}, groups {layer_group}')
-
+		dropout = [0.1 + 0.4 * i / (layers - 1) for i in range(layers)]
 
 		# self.downsample_input = nn.PixelUnshuffle(2)
 		all_layers = []
@@ -119,11 +119,14 @@ class Encoder(nn.Module):
 			# total_calc = ch_in * mid_ch_calc + (s * (s + 1) / 2) * 9 * mid_ch_calc ** 2 + (s + 1) * mid_ch_calc * ch_out
 			# groups = max(round((total_calc / param_compute) ** 0.5), 1)
 			if l_i == 0:
-				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i], layer_group[l_i])
+				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i],
+				                               layer_group[l_i], dropped_out=dropout[l_i])
 			elif l_i < layers - 1:
-				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i], layer_group[l_i],out_groups=layer_group[l_i])
+				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i],
+				                               layer_group[l_i], out_groups=layer_group[l_i], dropped_out=dropout[l_i])
 			else:
-				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i], out_groups ,in_groups=4, out_groups=out_groups)
+				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i], out_groups,
+				                               in_groups=4, out_groups=out_groups, dropped_out=dropout[l_i])
 			all_layers.append(dense_layer)
 			if l_i < layers - 1:
 				all_layers.append(nn.PixelUnshuffle(2))
@@ -166,6 +169,8 @@ class Decoder(nn.Module):
 		depths.reverse()
 		mid_chs.reverse()
 		layer_group.reverse()
+		dropout = [0.1 + 0.4 * i / (layers - 1) for i in range(layers)]
+		dropout.reverse()
 		self.layers = layers
 
 		AppLog.info(f'Decoder channels {channels}, depths {depths}, mid_chs {mid_chs}, groups {layer_group}')
@@ -182,10 +187,11 @@ class Decoder(nn.Module):
 			groups = layer_group[layer]
 			if layer == 0:
 				dec_layer = SimpleDenseLayer(ch_in, mid_ch_calc, ch_out, s, groups, in_groups=in_group,
-				                             out_groups=groups)
+				                             out_groups=groups, dropped_out=dropout[layer])
 				self.input_layers = dec_layer.in_ch
 			else:
-				dec_layer = SimpleDenseLayer(ch_in, mid_ch_calc, ch_out, s, groups, out_groups=groups)
+				dec_layer = SimpleDenseLayer(ch_in, mid_ch_calc, ch_out, s, groups, out_groups=groups,
+				                             dropped_out=dropout[layer])
 			all_layers.append(dec_layer)
 			if layer < layers - 1:
 				upscale = nn.PixelShuffle(2)
