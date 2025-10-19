@@ -102,13 +102,13 @@ def calc_channels_depth_and_midchs(in_ch, out_ch, in_depth, out_depth, layers, m
 
 
 class Encoder(nn.Module):
-	def __init__(self, ch_in_enc, ch_out_enc, layers=5, out_groups=16, min_depth=8, max_depth=16, min_mid_ch=12):
+	def __init__(self, ch_in_enc, ch_out_enc, layers=5, out_groups=16, min_depth=9, max_depth=18, min_mid_ch=12):
 		super().__init__()
 		self.min_depth = min_depth
 		self.max_depth = max_depth
 		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_in_enc, ch_out_enc, self.min_depth,
 		                                                                        self.max_depth, layers, mid_ch_st=min_mid_ch)
-		AppLog.info(f'Encoder channels {channels}, depths {depths}, mid_chs {mid_chs}')
+		AppLog.info(f'Encoder channels {channels}, depths {depths}, mid_chs {mid_chs}, groups {layer_group}')
 
 
 		# self.downsample_input = nn.PixelUnshuffle(2)
@@ -153,16 +153,20 @@ def dumb_calc(s, j=2):
 
 
 class Decoder(nn.Module):
-	def __init__(self, ch_in_dec, ch_out_dec, layers=5, in_group=32) -> None:
+	def __init__(self, ch_in_dec, ch_out_dec, layers=5, in_group=32, min_depth=8, max_depth=9, min_mid_ch=12) -> None:
 		super().__init__()
-		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_out_dec, ch_in_dec, 8, 9, layers)
+		self.min_depth = min_depth
+		self.max_depth = max_depth
+		self.min_mid_ch = min_mid_ch
+		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_out_dec, ch_in_dec, self.min_depth,
+		                                                                        self.max_depth, layers, mid_ch_st=self.min_mid_ch)
 		channels.reverse()
 		depths.reverse()
 		mid_chs.reverse()
 		layer_group.reverse()
 		self.layers = layers
 
-		AppLog.info(f'Decoder channels {channels}, depths {depths}, mid_chs {mid_chs}')
+		AppLog.info(f'Decoder channels {channels}, depths {depths}, mid_chs {mid_chs}, groups {layer_group}')
 
 		all_layers = []
 		self.input_layers = -1
