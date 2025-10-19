@@ -108,11 +108,10 @@ class Encoder(nn.Module):
 		self.layer_count = layers
 
 	def forward(self, x):
-
 		for i, layer in enumerate(self.layers.values()):
 			x = layer(x)
-			x = self.downsample_input(x)
-
+			if i < self.layer_count - 1:
+				x = self.downsample_input(x)
 		return x
 
 
