@@ -102,24 +102,38 @@ def calc_channels_depth_and_midchs(in_ch, out_ch, in_depth, out_depth, layers, m
 
 
 class Encoder(nn.Module):
-	def __init__(self, ch_in_enc, ch_out_enc, layers=5):
+	def __init__(self, ch_in_enc, ch_out_enc, layers=5, out_groups=16, min_depth=8, max_depth=16, min_mid_ch=12):
 		super().__init__()
-		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_in_enc, ch_out_enc, 8, 16, layers)
+		self.min_depth = min_depth
+		self.max_depth = max_depth
+		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_in_enc, ch_out_enc, self.min_depth,
+		                                                                        self.max_depth, layers, mid_ch_st=min_mid_ch)
 		AppLog.info(f'Encoder channels {channels}, depths {depths}, mid_chs {mid_chs}')
 
-		self.layers = ModuleDict()
-		self.downsample_input = nn.PixelUnshuffle(2)
+
+		# self.downsample_input = nn.PixelUnshuffle(2)
+		all_layers = []
 		for l_i in range(layers):
 			# total_calc = ch_in * mid_ch_calc + (s * (s + 1) / 2) * 9 * mid_ch_calc ** 2 + (s + 1) * mid_ch_calc * ch_out
 			# groups = max(round((total_calc / param_compute) ** 0.5), 1)
 			if l_i == 0:
 				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i], layer_group[l_i])
-			else:
+			elif l_i < layers - 1:
 				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i], layer_group[l_i],out_groups=layer_group[l_i])
+			else:
+				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i], out_groups ,in_groups=4, out_groups=out_groups)
+			all_layers.append(dense_layer)
+			if l_i < layers - 1:
+				all_layers.append(nn.PixelUnshuffle(2))
 
 			self.ch_out = dense_layer.out_ch
-			self.layers[f'{l_i}'] = dense_layer
+		self.final_norm = nn.GroupNorm(1, self.ch_out)
+		self.final_act = nn.Tanh()
+		all_layers.append(self.final_norm)
+		all_layers.append(self.final_act)
+		self.all_layers_list = all_layers
 
+		self.encoder_layers = nn.Sequential(*self.all_layers_list)
 		self.layer_count = layers
 
 	def forward(self, x):
