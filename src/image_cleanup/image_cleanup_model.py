@@ -1,20 +1,7 @@
 from torch import nn
 from torchinfo import summary
 
-from src.common.common_utils import AppLog
 from src.encoder_decoder.codec import DecoderLayer, Encoder1stLayer, EncoderLayer
-
-def calc_middle(c_in, c_out, kernel_stack, total_params):
-	kernel_sum = sum([sum(ks_in_stack) for ks_in_stack in kernel_stack])
-	kernel_count = sum([len(ks_in_stack) for ks_in_stack in kernel_stack])
-	kernel_count_layer_1 = len(kernel_stack[0])
-	stacks = len(kernel_stack)
-	A = 2*kernel_sum + stacks - 1
-	B = c_in*(kernel_count_layer_1 +1) + 2*kernel_count + 2*c_out + 1
-	C = c_out - total_params
-	mid_ch = (-B + (B**2 - 4*A*C)**0.5)/(2*A)
-	return mid_ch
-
 
 
 class ImageCleanUpEncoder(nn.Module):
