@@ -192,16 +192,15 @@ class Decoder(nn.Module):
 		all_layers.append(self.last_activation)
 		self.decoder_layers = nn.Sequential(*all_layers)
 
-		z_m = latent_z
+	def forward(self, latent_z, h, w):
+		n, c, lh, lw = latent_z.shape
+		zeros = torch.zeros([n, self.input_layers - c, lh, lw], device=latent_z.device)
+		latent_z = torch.cat([zeros, latent_z], dim=1)
 
+		out_uncropped = self.decoder_layers(latent_z)
 
-		for i, dec_layer in enumerate(self.decoder_layers.values()):
-			upscaled = self.upsample2(z_m)
-			z_m = dec_layer(upscaled)
-
-		z_m = interpolate(z_m, size=[h, w], mode='nearest-exact')
-		compressed_output = self.last_compress(z_m)
-		return self.last_activation(compressed_output)
+		out = center_crop(out_uncropped, output_size=[h, w])
+		return out
 
 
 class ImageCodec(nn.Module):
