@@ -87,7 +87,7 @@ def calculate_intermediate_ch(input_channels, kernels, max_params, output_channe
 
 
 class Encoder(nn.Module):
-	def __init__(self, ch_in_enc, ch_out_enc, layers):
+	def __init__(self, ch_in_enc, ch_out_enc, layers=5):
 		super().__init__()
 		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_in_enc, ch_out_enc, 8, 16, layers)
 		AppLog.info(f'Encoder channels {channels}, depths {depths}, mid_chs {mid_chs}')
