@@ -1,10 +1,10 @@
-from math import lcm, ceil
+from math import ceil, lcm
 
 import torch
 from torch import nn
 from torch.nn import ModuleDict
-from torch.nn.functional import interpolate
 from torchinfo import summary
+from torchvision.transforms.v2.functional import center_crop, pad
 
 from src.common.common_utils import AppLog
 
@@ -273,6 +273,8 @@ if __name__ == '__main__':
 	# chn.reverse()
 	# dec = Encoder(chn)
 	# enc = Encoder(64, 256, 6, 1 / 16)
-	enc = ImageCodec(64, 256, 48)
+	enc = ImageCodec(64, 768, 48)
 	AppLog.info(f'Encoder : {enc}')
-	summary(enc, [(12, 3, 256, 256)])
+	inp = torch.randn(16, 3, 320, 320)
+	ratio = 1.0
+	summary(enc, input_data=(inp, ratio))
