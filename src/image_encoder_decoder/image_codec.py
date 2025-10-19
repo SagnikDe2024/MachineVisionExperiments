@@ -44,14 +44,12 @@ class SimpleDenseLayer(nn.Module):
 		AppLog.info('------------------------------------')
 
 	def forward(self, x):
-		conv_start = self.inp_conv(x)
-		prev = []
+		dense_input = self.inp_conv(x)
+
 		for mid_conv in self.mid_conv_modules.values():
-			conv_inp = torch.cat([conv_start, *prev], dim=1)
-			mid_conv_res = mid_conv(conv_inp)
-			prev.append(conv_start)
-			conv_start = mid_conv_res
-		out = self.out_conv(torch.cat([conv_start, *prev], dim=1))
+			mid_conv_res = mid_conv(dense_input)
+			dense_input = torch.cat([mid_conv_res,dense_input], dim=1)
+		out = self.out_conv(dense_input)
 		return out
 
 
