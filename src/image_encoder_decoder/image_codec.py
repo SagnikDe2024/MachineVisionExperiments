@@ -87,28 +87,25 @@ def calculate_intermediate_ch(input_channels, kernels, max_params, output_channe
 
 
 class Encoder(nn.Module):
-	def __init__(self, ch_in, ch_out, layers):
+	def __init__(self, ch_in_enc, ch_out_enc, layers):
 		super().__init__()
-		ratio = (ch_out / ch_in) ** (1 / layers)
-		channels = [round(ch_in * ratio ** i) for i in range(layers + 1)]
-		param_compute = 9 * channels[0] * channels[1]
-		AppLog.info(f'Encoder channels {channels}')
+		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_in_enc, ch_out_enc, 8, 16, layers)
+		AppLog.info(f'Encoder channels {channels}, depths {depths}, mid_chs {mid_chs}')
 
 		self.layers = ModuleDict()
 		self.downsample_input = nn.PixelUnshuffle(2)
-		for layer in range(layers):
-			ch_in = channels[layer]
-			ch_out = channels[layer + 1]
-			s = round(layer ** ratio) + 3
-			mid_ch_calc = round(dumb_calc(s,ratio) * ch_in)
-			total_calc = ch_in * mid_ch_calc + (s * (s + 1) / 2) * 9 * mid_ch_calc ** 2 + (s + 1) * mid_ch_calc * ch_out
-			groups = max(round((total_calc / param_compute) ** 0.5), 1)
-			kernel_list = [3 for _ in range(s)]
-			self.layers[f'{layer}'] = SimpleDenseLayer(mid_ch_calc, ch_out, groups, kernel_list)
+		for l_i in range(layers):
+			# total_calc = ch_in * mid_ch_calc + (s * (s + 1) / 2) * 9 * mid_ch_calc ** 2 + (s + 1) * mid_ch_calc * ch_out
+			# groups = max(round((total_calc / param_compute) ** 0.5), 1)
+			if l_i == 0:
+				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i], layer_group[l_i])
+			else:
+				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i], layer_group[l_i],out_groups=layer_group[l_i])
+
+			self.ch_out = dense_layer.out_ch
+			self.layers[f'{l_i}'] = dense_layer
 
 		self.layer_count = layers
-
-		self.ch_out = ch_out
 
 	def forward(self, x):
 
