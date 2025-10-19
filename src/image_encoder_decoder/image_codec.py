@@ -90,9 +90,15 @@ def calculate_intermediate_ch(input_channels, kernels, max_params, output_channe
 	m_in = round(m)
 	return m_in, n
 
-
-
-
+def calc_channels_depth_and_midchs(in_ch, out_ch, in_depth, out_depth, layers, mid_ch_st=12):
+	ch_ratio = (out_ch / in_ch) ** (1 / (layers-1))
+	channels = [ round(in_ch*ch_ratio**i/4)*4 for i in range(-1,layers)]
+	depth_ratio = (out_depth / in_depth) ** (1 / (layers-1))
+	depths = [ round(in_depth*depth_ratio**i) for i in range(layers)]
+	mid_ch_r = ch_ratio/depth_ratio
+	mid_chs = [ round(mid_ch_st*mid_ch_r**i/4)*4  for i in range(layers)]
+	groups = [ mch // 4 for mch in mid_chs ]
+	return channels, depths, mid_chs, groups
 
 
 class Encoder(nn.Module):
