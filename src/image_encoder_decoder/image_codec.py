@@ -11,7 +11,7 @@ from src.common.common_utils import AppLog
 
 class SimpleDenseLayer(nn.Module):
 
-	def __init__(self, in_ch,mid_ch, out_ch, depth ,groups ,normed=True,in_groups=1,out_groups=1):
+	def __init__(self, in_ch, mid_ch, out_ch, depth, groups, normed=True, in_groups=1, out_groups=1, dropped_out=0.2):
 		super().__init__()
 		divisibility = lcm(4, groups)
 		mid_ch = round(mid_ch / divisibility) * divisibility
@@ -33,9 +33,11 @@ class SimpleDenseLayer(nn.Module):
 			                     padding_mode='reflect')
 			cost += (mid_ch * k / groups) ** 2 * (i + 1) + mid_ch * 2
 			norm = nn.GroupNorm(groups, mid_ch) if normed else nn.Identity()
-			shuffle = nn.ChannelShuffle(2)
+			shuffle_1 = nn.ChannelShuffle(2)
+			shuffle_2 = nn.ChannelShuffle(groups)
+			dropped_out_layer = nn.Dropout(dropped_out)
 			act = nn.Mish()
-			self.mid_conv_modules[f'{k}'] = nn.Sequential(shuffle, conv, shuffle, norm, act)
+			self.mid_conv_modules[f'{k}'] = nn.Sequential(shuffle_1, conv, shuffle_2, norm, act, dropped_out_layer)
 		self.out_conv = nn.LazyConv2d(out_channels=out_ch, kernel_size=1, padding=0, bias=True,groups=out_groups)
 		cost += out_ch * 2 + mid_ch * len(kernel_list)
 		AppLog.info(f'Dense layer in_ch={self.in_ch} mid_ch={self.mid_ch}, out_ch={self.out_ch}, groups={groups}, kernels={kernel_list}')
