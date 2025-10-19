@@ -136,12 +136,13 @@ class Encoder(nn.Module):
 		self.encoder_layers = nn.Sequential(*self.all_layers_list)
 		self.layer_count = layers
 
-	def forward(self, x):
-		for i, layer in enumerate(self.layers.values()):
-			x = layer(x)
-			if i < self.layer_count - 1:
-				x = self.downsample_input(x)
-		return x
+	def forward(self, x, ratio=1.0):
+		xf,h,w = fill_as_req(x)
+		encoded = self.encoder_layers(xf)
+		encoded_channels = encoded.shape[1]
+		zeroed = round((encoded_channels-1) * (1-ratio))
+		new_encode = encoded[:,zeroed:,:,:]
+		return new_encode , h, w
 
 
 def dumb_calc(s, j=2):
