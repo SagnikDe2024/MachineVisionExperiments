@@ -99,6 +99,23 @@ def get_saturation(image):
 	inv_sat = torch.nan_to_num(min_max.min / min_max.max, nan=1, posinf=1, neginf=1)
 	return 1 - inv_sat
 
+class SaturationLoss(nn.Module):
+	def __init__(self):
+		super().__init__()
+		self.loss2 = nn.MSELoss()
+
+	def forward(self, inferred_image, target_image):
+		min_i = torch.min(inferred_image, dim=1, keepdim=True)
+		max_i = torch.max(inferred_image, dim=1, keepdim=True)
+		min_t = torch.min(target_image, dim=1, keepdim=True)
+		max_t = torch.max(target_image, dim=1, keepdim=True)
+
+		sat = 1 - min_i.values / (max_i.values + 1e-5)
+		sat_t = 1 - min_t.values / (max_t.values + 1e-5)
+		return self.loss2(sat, sat_t)
+
+
+
 
 class MultiscalePerceptualLoss(nn.Module):
 	def __init__(self, max_downsample=8, steps_to_downsample=4):
