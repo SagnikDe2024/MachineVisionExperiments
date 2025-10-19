@@ -7,21 +7,6 @@ from typing import Optional
 from src.common.common_utils import AppLog
 
 
-# class L1BatchNorm2D(nn.Module):
-# 	def __init__(self, channels):
-# 		super().__init__()
-# 		self.bnl1_weights = nn.Parameter(torch.ones(channels))
-# 		self.bnl1_bias = nn.Parameter(torch.zeros(channels))
-# 		self.bnl1_const = math.pi/2
-#
-# 	def forward(self, x):
-#
-# 		l1_mean = torch.mean(x, dim=-4, keepdim=True)
-# 		diff = x - l1_mean
-# 		l1_std = torch.abs(diff).mean(dim=-4, keepdim=True)
-# 		x_normed = diff / (self.bnl1_const*l1_std + 1e-8)
-# 		x_normed_weights_bias = x_normed * self.bnl1_weights + self.bnl1_bias
-# 		return x_normed_weights_bias
 
 
 class EncoderLayer(nn.Module):
