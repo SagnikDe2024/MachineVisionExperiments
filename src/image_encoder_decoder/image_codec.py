@@ -194,8 +194,8 @@ class Decoder(nn.Module):
 			# ch_out
 			groups = layer_group[layer]
 			if layer == 0:
-				dec_layer = SimpleDenseLayer(ch_in, mid_ch_calc, ch_out, s, groups, in_groups=in_group,
-				                             out_groups=groups, dropped_out=dropout[layer])
+				dec_layer = SimpleDenseLayer(ch_in, mid_ch_calc, ch_out, s, in_group, in_groups=in_group,
+				                             out_groups=in_group, dropped_out=dropout[layer])
 				self.input_layers = dec_layer.in_ch
 			else:
 				dec_layer = SimpleDenseLayer(ch_in, mid_ch_calc, ch_out, s, groups, out_groups=groups,
@@ -227,8 +227,8 @@ class ImageCodec(nn.Module):
 	def __init__(self, enc_chin, latent_channels, dec_chout, enc_layers=5, dec_layers=5):
 		super().__init__()
 
-		self.encoder = Encoder(enc_chin, latent_channels, layers=enc_layers)
-		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers, in_group=8, min_depth=10, max_depth=16,
+		self.encoder = Encoder(enc_chin, latent_channels, layers=enc_layers,out_groups=16, min_depth=12, max_depth=18)
+		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers, in_group=16, min_depth=10, max_depth=16,
 		                       min_mid_ch=12)
 
 	def forward(self, x, ratio=1.0):
