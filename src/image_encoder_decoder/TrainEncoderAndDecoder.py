@@ -232,7 +232,7 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 
 def getImageEncoderDecoder():
 	# codec = get_simple_encoder_decoder()
-	codec = ImageCodec(64, 256, 48)
+	codec = ImageCodec(64, 768, 48)
 	return codec
 
 
