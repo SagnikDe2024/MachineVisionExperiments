@@ -5,6 +5,7 @@ import pandas as pd
 import torch
 import torchvision
 from PIL import Image
+from diskcache import Cache
 from pathlib import Path
 from torch import GradScaler
 from torch.nn import HuberLoss
@@ -23,19 +24,22 @@ from src.image_encoder_decoder.image_codec import ImageCodec, encode_decode_from
 
 
 class ImageFolderDataset(Dataset):
-	def __init__(self, path: Path, transform=None):
+	def __init__(self, path: Path, transform=None, cache_path=None):
 		super().__init__()
 		self.path = path
 		self.files = [picfile for picfile in path.iterdir() if picfile.is_file()]
+		self.cache = Cache('cache/') if cache_path is None else Cache(cache_path)
 		self.transform = transform
 
 	def __len__(self):
 		return len(self.files)
 
 	def __getitem__(self, idx):
+		if idx in self.cache:
+			return self.transform(self.cache[idx])
 		image_path = self.files[idx]
 		decoded = decode_image(str(image_path), mode='RGB')
-		# image = acquire_image(image_path)
+		self.cache[idx] = decoded
 		return self.transform(decoded)
 
 
@@ -44,8 +48,8 @@ def get_data(batch_size=16, minsize=320):
 
 	transform_validate = Compose([FiveCrop(minsize), Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0])), ])
 
-	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform_train)
-	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform_validate)
+	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform_train, cache_path='cache/CC/train')
+	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform_validate, cache_path='cache/CC/validate')
 
 	train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
 	val_loader = DataLoader(validate_set, batch_size=batch_size, shuffle=False, drop_last=True)
