@@ -7,16 +7,18 @@ import torchvision
 from PIL import Image
 from pathlib import Path
 from torch import GradScaler
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, ReduceLROnPlateau
+from torch.nn import HuberLoss
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch.utils.data import DataLoader, Dataset
+from torchvision import tv_tensors
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import resize
-from torchvision.transforms.v2 import RandomCrop, RandomHorizontalFlip, RandomResize, \
-	RandomVerticalFlip, Resize, FiveCrop, Lambda, ToTensor
+from torchvision.transforms.v2 import ColorJitter, Compose, FiveCrop, Lambda, RandomCrop, RandomHorizontalFlip, \
+	RandomVerticalFlip
 
 from src.common.common_utils import AppLog, acquire_image
-from src.encoder_decoder.image_reconstruction_loss import MultiScaleGradientLoss
-from src.image_encoder_decoder.image_codec import encode_decode_from_model, ImageCodec
+from src.encoder_decoder.image_reconstruction_loss import SaturationLoss
+from src.image_encoder_decoder.image_codec import ImageCodec, encode_decode_from_model
 
 
 class ImageFolderDataset(Dataset):
