@@ -248,7 +248,7 @@ def test_and_show(size):
 		enc.to(traindevice)
 		with torch.no_grad():
 			# image = acquire_image('data/CC/train/image_1000.jpeg')
-			image = acquire_image('data/reddit_face.jpg')
+			image = acquire_image('data/normal_pic.jpg')
 			image = image.unsqueeze(0)
 			image = image.to(traindevice)
 			image = resize(image, [size], InterpolationMode.BILINEAR, antialias=True)
