@@ -59,8 +59,10 @@ def get_data(batch_size=16, minsize=272):
 class TrainEncoderAndDecoder:
 	def __init__(self, model, optimizer, train_device, cycle_sch, save_training_fn, starting_epoch, ending_epoch,
 	             vloss=float('inf'), scaler=None):
-		loss_fn = MultiScaleGradientLoss(train_device, max_downsample=16, steps_to_downsample=6).requires_grad_(False)
-		# loss_fn = nn.L1Loss()
+		loss_fn = [HuberLoss(delta=0.5), SaturationLoss()]
+
+
+
 		self.device = train_device
 		self.model_orig = model
 		self.model = torch.compile(self.model_orig, mode="max-autotune").to(self.device)
@@ -72,14 +74,11 @@ class TrainEncoderAndDecoder:
 		self.best_vloss = vloss
 
 		self.trained_one_batch = False
-		self.loss_func = torch.compile(loss_fn, mode="max-autotune").to(self.device)
-		# self.loss_func = loss_fn
-		# self.loss_func = torch.compile(ReconstructionLossRelative(), mode="default").to(self.device)
+
+		self.loss_func = [ torch.compile(l,mode='default').to(self.device).eval() for l in loss_fn ]
 		self.scheduler = cycle_sch
 		self.scaler = GradScaler() if scaler is None else scaler
 
-	# self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=1 / 3, patience=3,
-	#                                                 min_lr=1e-8)
 
 	def train_one_epoch(self, train_loader):
 		self.model.train(True)
@@ -91,13 +90,14 @@ class TrainEncoderAndDecoder:
 				self.optimizer.zero_grad()
 				loss = self.get_loss_by_inference(data)
 
-			scaled_loss = self.scaler.scale(loss)
-			tloss += scaled_loss.item()
+			total_loss = sum(loss)
+			scaled_loss = self.scaler.scale(total_loss)
+
 			pics_seen += data.shape[0]
 			scaled_loss.backward()
 			self.scaler.step(self.optimizer)
 			self.scaler.update()
-
+			tloss += scaled_loss.item()
 			if not self.trained_one_batch:
 				self.trained_one_batch = True
 				AppLog.info(f'Training loss: {tloss}, batch: {batch_idx + 1}')
@@ -106,8 +106,8 @@ class TrainEncoderAndDecoder:
 	def get_loss_by_inference(self, data):
 		with torch.autocast(device_type=self.device):
 			result, lat = encode_decode_from_model(self.model, data)
-			loss = self.loss_func(result, data)
-		return loss
+			losses = [ l(result,data) for l in self.loss_func ]
+		return losses
 
 	def evaluate(self, val_loader):
 		self.model.eval()
@@ -128,7 +128,7 @@ class TrainEncoderAndDecoder:
 		while self.current_epoch < self.ending_epoch:
 			train_loss, p_t = self.train_one_epoch(train_loader)
 			val_loss, p_v = self.evaluate(val_loader)
-			self.scheduler.step(val_loss)
+			self.scheduler.step()
 			# self.scheduler.step(val_loss,epoch=epoch)
 			AppLog.info(
 				f'Epoch {self.current_epoch + 1}: Training loss = {train_loss:.3e} ({p_t} samples), Validation Loss = '
