@@ -37,18 +37,11 @@ class ImageFolderDataset(Dataset):
 		return self.transform(image)
 
 
-def get_data(batch_size=16, minsize=272):
-	maxsize = round(minsize * 2.5)
+def get_data(batch_size=16, minsize=320):
+	transform_train = Compose([RandomCrop(minsize), RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5),
+		ColorJitter(saturation=0.5, brightness=0.5, contrast=0.5), ])
 
-	transform_train = torchvision.transforms.Compose([
-		RandomResize(minsize, maxsize),
-		RandomCrop(minsize), RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5),
-	])
-
-	transform_validate = torchvision.transforms.Compose([
-		Resize(maxsize, interpolation=InterpolationMode.BILINEAR),
-		FiveCrop(minsize), Lambda(lambda crops: torch.stack([ToTensor()(crop) for crop in crops])),
-	])
+	transform_validate = Compose([FiveCrop(minsize), Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0])), ])
 
 	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform_train)
 	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform_validate)
@@ -62,8 +55,6 @@ class TrainEncoderAndDecoder:
 	def __init__(self, model, optimizer, train_device, cycle_sch, save_training_fn, starting_epoch, ending_epoch,
 	             vloss=float('inf'), scaler=None):
 		loss_fn = [HuberLoss(delta=0.5), SaturationLoss()]
-
-
 
 		self.device = train_device
 		self.model_orig = model
@@ -80,7 +71,6 @@ class TrainEncoderAndDecoder:
 		self.loss_func = [ torch.compile(l,mode='default').to(self.device).eval() for l in loss_fn ]
 		self.scheduler = cycle_sch
 		self.scaler = GradScaler() if scaler is None else scaler
-
 
 	def train_one_epoch(self, train_loader):
 		self.model.train(True)
