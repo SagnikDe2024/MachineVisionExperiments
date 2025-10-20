@@ -1,2 +1,5 @@
 /.venv/
 /data/
+/log/
+/out/
+/deepfaceAndEmotion/data/
