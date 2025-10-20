@@ -11,10 +11,11 @@ from torch.nn import HuberLoss
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch.utils.data import DataLoader, Dataset
 from torchvision import tv_tensors
+from torchvision.io import decode_image
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import resize
 from torchvision.transforms.v2 import ColorJitter, Compose, FiveCrop, Lambda, RandomCrop, RandomHorizontalFlip, \
-	RandomVerticalFlip
+	RandomVerticalFlip, ToDtype
 
 from src.common.common_utils import AppLog, acquire_image
 from src.encoder_decoder.image_reconstruction_loss import SaturationLoss
@@ -33,13 +34,13 @@ class ImageFolderDataset(Dataset):
 
 	def __getitem__(self, idx):
 		image_path = self.files[idx]
-		image = acquire_image(image_path)
-		return self.transform(image)
+		decoded = decode_image(str(image_path), mode='RGB')
+		# image = acquire_image(image_path)
+		return self.transform(decoded)
 
 
 def get_data(batch_size=16, minsize=320):
-	transform_train = Compose([RandomCrop(minsize), RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5),
-		ColorJitter(saturation=0.5, brightness=0.5, contrast=0.5), ])
+	transform_train = Compose([RandomCrop(minsize)])
 
 	transform_validate = Compose([FiveCrop(minsize), Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0])), ])
 
@@ -71,6 +72,10 @@ class TrainEncoderAndDecoder:
 		self.loss_func = [torch.compile(l, mode='default').to(self.device).eval() for l in loss_fn]
 		self.scheduler = cycle_sch
 		self.scaler = GradScaler() if scaler is None else scaler
+		self.train_transform = Compose(
+			[ToDtype(dtype=torch.float32, scale=True), RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5),
+			 ColorJitter(saturation=0.5, brightness=0.5, contrast=0.5), ])
+		self.validate_transform = Compose([ToDtype(dtype=torch.float32, scale=True), ])
 
 	def train_one_epoch(self, train_loader):
 		self.model.train(True)
@@ -79,6 +84,7 @@ class TrainEncoderAndDecoder:
 		for batch_idx, data in enumerate(train_loader):
 			with torch.backends.cudnn.flags(enabled=True):
 				data = data.to(self.device)
+				data = self.train_transform(data)
 				self.optimizer.zero_grad()
 				loss = self.get_loss_by_inference(data)
 
@@ -107,11 +113,16 @@ class TrainEncoderAndDecoder:
 		pics_seen = 0
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
-				for datum in data:
-					devdatum = datum.to(self.device)
-					loss = self.get_loss_by_inference(devdatum)
-					vloss += sum([s.item() for s in loss])
-					pics_seen += devdatum.shape[0]
+				stacked = torch.stack(data)
+				s, n, c, h, w = stacked.shape
+				stacked = stacked.to(self.device)
+				reshaped = torch.reshape(stacked, (s * n, c, h, w))
+				scaled = self.validate_transform(
+					reshaped
+				)
+				loss = self.get_loss_by_inference(scaled)
+				vloss += sum([s.item() for s in loss])
+				pics_seen += scaled.shape[0]
 		return vloss, pics_seen
 
 	def train_and_evaluate(self, train_loader, val_loader):
