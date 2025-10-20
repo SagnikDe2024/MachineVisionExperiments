@@ -178,8 +178,7 @@ def load_training_state(location, model, optimizer=None, scheduler=None, scaler=
 	if scheduler is not None and 'scheduler_state_dict' in checkpoint.keys() and checkpoint[
 		'scheduler_state_dict'] is not None:
 		scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-	if scaler is not None and 'scaler_state_dict' in checkpoint.keys() and checkpoint[
-		'scaler_state_dict'] is not None:
+	if scaler is not None and 'scaler_state_dict' in checkpoint.keys() and checkpoint['scaler_state_dict'] is not None:
 		scaler.load_state_dict(checkpoint['scaler_state_dict'])
 
 	epoch = checkpoint['epoch']
