@@ -68,7 +68,7 @@ class TrainEncoderAndDecoder:
 
 		self.trained_one_batch = False
 
-		self.loss_func = [ torch.compile(l,mode='default').to(self.device).eval() for l in loss_fn ]
+		self.loss_func = [torch.compile(l, mode='default').to(self.device).eval() for l in loss_fn]
 		self.scheduler = cycle_sch
 		self.scaler = GradScaler() if scaler is None else scaler
 
@@ -98,7 +98,7 @@ class TrainEncoderAndDecoder:
 	def get_loss_by_inference(self, data):
 		with torch.autocast(device_type=self.device):
 			result, lat = encode_decode_from_model(self.model, data)
-			losses = [ l(result,data) for l in self.loss_func ]
+			losses = [l(result, data) for l in self.loss_func]
 		return losses
 
 	def evaluate(self, val_loader):
@@ -206,8 +206,7 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 
 	if os.path.exists(save_location) and not start_new:
 		if lr_max_arg > 0 and lr_min_arg > 0:
-			enc, optim, epoch, vloss, scheduler, scaler = load_training_state(save_location, enc, None,
-			                                                                      None,None)
+			enc, optim, epoch, vloss, scheduler, scaler = load_training_state(save_location, enc, None, None, None)
 			scheduler = cyc_sch
 			optim = optimizer
 		else:
