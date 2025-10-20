@@ -23,11 +23,11 @@ class SimpleDenseLayer(nn.Module):
 		self.mid_ch = mid_ch
 		self.out_ch = out_ch
 		self.in_ch = in_ch
-		self.inp_conv = nn.LazyConv2d(out_channels=in_ch, kernel_size=1, padding=0, bias=True,groups=in_groups)
+		self.inp_conv = nn.LazyConv2d(out_channels=in_ch, kernel_size=1, padding=0, bias=True, groups=in_groups)
 		self.mid_conv_modules = ModuleDict()
 		use_bias = not normed
 		cost = 0
-		kernel_list= [3 for _ in range(depth)]
+		kernel_list = [3 for _ in range(depth)]
 		for i, k in enumerate(kernel_list):
 			conv = nn.LazyConv2d(out_channels=mid_ch, kernel_size=k, padding=k // 2, bias=use_bias, groups=groups,
 			                     padding_mode='reflect')
@@ -38,9 +38,11 @@ class SimpleDenseLayer(nn.Module):
 			dropped_out_layer = nn.Dropout(dropped_out)
 			act = nn.Mish()
 			self.mid_conv_modules[f'{k}'] = nn.Sequential(shuffle_1, conv, shuffle_2, norm, act, dropped_out_layer)
-		self.out_conv = nn.LazyConv2d(out_channels=out_ch, kernel_size=1, padding=0, bias=True,groups=out_groups)
+		self.out_conv = nn.LazyConv2d(out_channels=out_ch, kernel_size=1, padding=0, bias=True, groups=out_groups)
 		cost += out_ch * 2 + mid_ch * len(kernel_list)
-		AppLog.info(f'Dense layer in_ch={self.in_ch} mid_ch={self.mid_ch}, out_ch={self.out_ch}, groups={groups}, kernels={kernel_list}')
+		AppLog.info(
+			f'Dense layer in_ch={self.in_ch} mid_ch={self.mid_ch}, out_ch={self.out_ch}, groups={groups}, '
+			f'kernels={kernel_list}')
 		AppLog.info(f'Approx params {cost}')
 		AppLog.info('------------------------------------')
 
@@ -49,13 +51,14 @@ class SimpleDenseLayer(nn.Module):
 
 		for mid_conv in self.mid_conv_modules.values():
 			mid_conv_res = mid_conv(dense_input)
-			dense_input = torch.cat([mid_conv_res,dense_input], dim=1)
+			dense_input = torch.cat([mid_conv_res, dense_input], dim=1)
 		out = self.out_conv(dense_input)
 		return out
 
 
 # Let c_out/c_in = j where j > 1 (for an encoder)
-# Now for compute reasons the features are compressed to m features, convolved, normed, activated and the output is squeezed again.
+# Now for compute reasons the features are compressed to m features, convolved, normed, activated and the output is
+# squeezed again.
 # Let c <- c_in and c j <- c_out.
 # The operation is as follows:
 # c [1 x 1] m -> m [ks x 1] m -> m [1 x ks] (m) -> batchnorm -> activate -> (m) [1 x 1 + 1 (for bias)] (c j/n)
@@ -70,19 +73,20 @@ class SimpleDenseLayer(nn.Module):
 # This is a of type quadratic eq. A m^2 + B m + C == 0
 # Here A = 2*(ks_1 + ks_2 ... ks_n), B = (c*n + 2*n + j*c) , C = j*c - P
 
-def fill_as_req(img,size_mul=16):
-	h,w = img.shape[-2:]
+def fill_as_req(img, size_mul=16):
+	h, w = img.shape[-2:]
 	h_new = ceil(h / size_mul) * size_mul
 	w_new = ceil(w / size_mul) * size_mul
 	left = (w_new - w) // 2
 	right = w_new - w - left
 	bottom = (h_new - h) // 2
 	top = h_new - h - bottom
-	img_new = pad(img, [left,top,right,bottom],padding_mode='symmetric')
-	return img_new,h,w
+	img_new = pad(img, [left, top, right, bottom], padding_mode='symmetric')
+	return img_new, h, w
+
 
 def calculate_intermediate_ch(input_channels, kernels, max_params, output_channels):
-	A = 2*(sum(kernels))
+	A = 2 * (sum(kernels))
 	n = len(kernels)
 	c = input_channels
 	j = output_channels / input_channels
@@ -92,14 +96,15 @@ def calculate_intermediate_ch(input_channels, kernels, max_params, output_channe
 	m_in = round(m)
 	return m_in, n
 
+
 def calc_channels_depth_and_midchs(in_ch, out_ch, in_depth, out_depth, layers, mid_ch_st=12):
-	ch_ratio = (out_ch / in_ch) ** (1 / (layers-1))
-	channels = [ round(in_ch*ch_ratio**i/4)*4 for i in range(-1,layers)]
-	depth_ratio = (out_depth / in_depth) ** (1 / (layers-1))
-	depths = [ round(in_depth*depth_ratio**i) for i in range(layers)]
-	mid_ch_r = ch_ratio/depth_ratio
-	mid_chs = [ round(mid_ch_st*mid_ch_r**i/4)*4  for i in range(layers)]
-	groups = [ mch // 4 for mch in mid_chs ]
+	ch_ratio = (out_ch / in_ch) ** (1 / (layers - 1))
+	channels = [round(in_ch * ch_ratio ** i / 4) * 4 for i in range(-1, layers)]
+	depth_ratio = (out_depth / in_depth) ** (1 / (layers - 1))
+	depths = [round(in_depth * depth_ratio ** i) for i in range(layers)]
+	mid_ch_r = ch_ratio / depth_ratio
+	mid_chs = [round(mid_ch_st * mid_ch_r ** i / 4) * 4 for i in range(layers)]
+	groups = [mch // 4 for mch in mid_chs]
 	return channels, depths, mid_chs, groups
 
 
@@ -109,14 +114,16 @@ class Encoder(nn.Module):
 		self.min_depth = min_depth
 		self.max_depth = max_depth
 		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_in_enc, ch_out_enc, self.min_depth,
-		                                                                        self.max_depth, layers, mid_ch_st=min_mid_ch)
+		                                                                        self.max_depth, layers,
+		                                                                        mid_ch_st=min_mid_ch)
 		AppLog.info(f'Encoder channels {channels}, depths {depths}, mid_chs {mid_chs}, groups {layer_group}')
 		dropout = [0.1 + 0.4 * i / (layers - 1) for i in range(layers)]
 
 		# self.downsample_input = nn.PixelUnshuffle(2)
 		all_layers = []
 		for l_i in range(layers):
-			# total_calc = ch_in * mid_ch_calc + (s * (s + 1) / 2) * 9 * mid_ch_calc ** 2 + (s + 1) * mid_ch_calc * ch_out
+			# total_calc = ch_in * mid_ch_calc + (s * (s + 1) / 2) * 9 * mid_ch_calc ** 2 + (s + 1) * mid_ch_calc *
+			# ch_out
 			# groups = max(round((total_calc / param_compute) ** 0.5), 1)
 			if l_i == 0:
 				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i],
@@ -142,17 +149,17 @@ class Encoder(nn.Module):
 		self.layer_count = layers
 
 	def forward(self, x, ratio=1.0):
-		xf,h,w = fill_as_req(x)
+		xf, h, w = fill_as_req(x)
 		encoded = self.encoder_layers(xf)
 		encoded_channels = encoded.shape[1]
-		zeroed = round((encoded_channels-1) * (1-ratio))
-		new_encode = encoded[:,zeroed:,:,:]
-		return new_encode , h, w
+		zeroed = round((encoded_channels - 1) * (1 - ratio))
+		new_encode = encoded[:, zeroed:, :, :]
+		return new_encode, h, w
 
 
 def dumb_calc(s, j=2):
 	return ((j ** 2 * (s + 1) ** 2 + 2 * j * (81 * s ** 2 + 82 * s + 1) + 1) ** 0.5 - j * (s + 1) - 1) / (
-				9 * s * (s + 1))
+			9 * s * (s + 1))
 
 	return ((328 * s ** 2 + 336 * s + 9) ** 0.5 - 2 * s - 3) / (9 * s * (s + 1))
 
@@ -164,7 +171,8 @@ class Decoder(nn.Module):
 		self.max_depth = max_depth
 		self.min_mid_ch = min_mid_ch
 		channels, depths, mid_chs, layer_group = calc_channels_depth_and_midchs(ch_out_dec, ch_in_dec, self.min_depth,
-		                                                                        self.max_depth, layers, mid_ch_st=self.min_mid_ch)
+		                                                                        self.max_depth, layers,
+		                                                                        mid_ch_st=self.min_mid_ch)
 		channels.reverse()
 		depths.reverse()
 		mid_chs.reverse()
@@ -206,7 +214,7 @@ class Decoder(nn.Module):
 
 	def forward(self, latent_z, h, w):
 		n, c, lh, lw = latent_z.shape
-		zeros = torch.zeros([n, self.input_layers - c, lh, lw], device=latent_z.device)
+		zeros = torch.zeros([n, max(self.input_layers - c, 0), lh, lw], device=latent_z.device)
 		latent_z = torch.cat([zeros, latent_z], dim=1)
 
 		out_uncropped = self.decoder_layers(latent_z)
@@ -220,7 +228,8 @@ class ImageCodec(nn.Module):
 		super().__init__()
 
 		self.encoder = Encoder(enc_chin, latent_channels, layers=enc_layers)
-		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers)
+		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers, in_group=8, min_depth=10, max_depth=16,
+		                       min_mid_ch=12)
 
 	def forward(self, x, ratio=1.0):
 		latent, h, w = self.encoder.forward(x, ratio=ratio)
@@ -234,7 +243,7 @@ def prepare_encoder_data(data):
 
 
 def scale_decoder_data(data):
-	sc2 = data*0.5+0.5
+	sc2 = data * 0.5 + 0.5
 	return sc2
 
 
@@ -244,16 +253,17 @@ def encode_decode_from_model(model, data):
 	final_res = scale_decoder_data(model_res)
 	return final_res, latent
 
-def calcParamsForMid(in_ch,out_ch, kernek_stack : list[list[int]], param_max):
+
+def calcParamsForMid(in_ch, out_ch, kernek_stack: list[list[int]], param_max):
 	k1 = len(kernek_stack[0])
-	kc = sum( len(ks) for ks in kernek_stack )
-	ks = sum( sum(ks) for ks in kernek_stack )
+	kc = sum(len(ks) for ks in kernek_stack)
+	ks = sum(sum(ks) for ks in kernek_stack)
 	l = len(kernek_stack)
 
-	B = (in_ch*k1 + in_ch + 2*kc + 2*out_ch + 1)
-	A = (2*ks + l - 1)
+	B = (in_ch * k1 + in_ch + 2 * kc + 2 * out_ch + 1)
+	A = (2 * ks + l - 1)
 	C = out_ch - param_max
-	m = (-B + (B**2 - 4*A*C) ** 0.5) / (2*A)
+	m = (-B + (B ** 2 - 4 * A * C) ** 0.5) / (2 * A)
 	return m
 
 
