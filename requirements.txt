@@ -1,3 +1,5 @@
+pillow
+diskcache
 torch~=2.7.1+cu128
 ray~=2.44.0
 torchinfo~=1.8.0
