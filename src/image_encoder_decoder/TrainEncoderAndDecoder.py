@@ -107,11 +107,11 @@ class TrainEncoderAndDecoder:
 		pics_seen = 0
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
-				# data = torch.concat(data, dim=0)
-				data = data.to(self.device)
-				loss = self.get_loss_by_inference(data)
-				vloss += loss.item()
-				pics_seen += data.shape[0]
+				for datum in data:
+					devdatum = datum.to(self.device)
+					loss = self.get_loss_by_inference(devdatum)
+					vloss += sum([s.item() for s in loss])
+					pics_seen += devdatum.shape[0]
 		return vloss, pics_seen
 
 	def train_and_evaluate(self, train_loader, val_loader):
@@ -129,7 +129,8 @@ class TrainEncoderAndDecoder:
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
 				self.save_training_fn(self.model_orig, self.optimizer, self.current_epoch + 1, val_loss,
-				                      self.scheduler, self.scaler)
+				                      self.scheduler,
+				                      self.scaler)
 			self.current_epoch += 1
 
 
@@ -163,9 +164,9 @@ def save_training_state(location, model, optimizer, epoch, vloss, scheduler=None
 	scheduler_state = None if scheduler is None else scheduler.state_dict()
 	scaler_state = None if scaler is None else scaler.state_dict()
 
-	torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(),
-	            'epoch': epoch, 'scheduler_state_dict': scheduler_state, 'v_loss': vloss,
-	            'scaler_state_dict': scaler_state}, location, )
+	torch.save({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(), 'epoch': epoch,
+	            'scheduler_state_dict': scheduler_state, 'v_loss': vloss, 'scaler_state_dict': scaler_state},
+	           location, )
 
 
 def load_training_state(location, model, optimizer=None, scheduler=None, scaler=None):
@@ -196,13 +197,13 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 	optimizer = torch.optim.NAdam(enc.parameters(), lr=lr_max)
 	max_epochs = 75
 	train_loader, val_loader = get_data(batch_size=batch_size, minsize=size)
-	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p, sch , sc : save_training_state(save_location, enc_p,
-	                                                                                         optimizer_p, epoch_p,
-	                                                                                         vloss_p, sch, sc)
+	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p, sch, sc: save_training_state(save_location, enc_p,
+	                                                                                             optimizer_p, epoch_p,
+	                                                                                             vloss_p, sch, sc)
 	linearLr = LinearLR(optimizer, start_factor=lr_max, total_iters=8)
-	cosinelr = CosineAnnealingLR(optimizer, T_max=(max_epochs-9))
+	cosinelr = CosineAnnealingLR(optimizer, T_max=(max_epochs - 9))
 	# cyc_sch = ReduceLROnPlateau(optimizer, mode='min', factor=1 / 3, patience=3, min_lr=lr_min, eps=lr_min / 10)
-	cyc_sch = SequentialLR(optimizer, schedulers=[linearLr,cosinelr], milestones=[9])
+	cyc_sch = SequentialLR(optimizer, schedulers=[linearLr, cosinelr], milestones=[9])
 
 	if os.path.exists(save_location) and not start_new:
 		if lr_max_arg > 0 and lr_min_arg > 0:
@@ -210,16 +211,17 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 			scheduler = cyc_sch
 			optim = optimizer
 		else:
-			enc, optim, epoch, vloss, scheduler, scaler = load_training_state(save_location, enc, optimizer, cyc_sch,GradScaler())
+			enc, optim, epoch, vloss, scheduler, scaler = load_training_state(save_location, enc, optimizer, cyc_sch,
+			                                                                  GradScaler())
 		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e} and scheduler {scheduler}')
 		if reset_vloss:
 			vloss = float('inf')
 			epoch = 0
-		AppLog.info(
-			f'(Re)Starting from epoch {epoch} with vloss {vloss:.3e} and scheduler {scheduler}, using device '
-			f'{traindevice}')
+		AppLog.info(f'(Re)Starting from epoch {epoch} with vloss {vloss:.3e} and scheduler {scheduler}, using device '
+		            f'{traindevice}')
 
-		trainer = TrainEncoderAndDecoder(enc, optim, traindevice, scheduler, save_training_fn, epoch, max_epochs, vloss,
+		trainer = TrainEncoderAndDecoder(enc, optim, traindevice, scheduler, save_training_fn, epoch, max_epochs,
+		                                 vloss,
 		                                 scaler)
 		trainer.train_and_evaluate(train_loader, val_loader)
 	else:
