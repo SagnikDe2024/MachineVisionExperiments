@@ -3,7 +3,7 @@ from functools import reduce
 import torch
 from torch import nn
 from torch.nn.functional import conv2d, interpolate, mse_loss
-from torchmetrics.functional.image import visual_information_fidelity
+# from torchmetrics.functional.image import visual_information_fidelity
 
 from src.common.common_utils import AppLog
 
@@ -295,15 +295,15 @@ class ReconstructionLossRelative(nn.Module):
 		return weight
 
 
-class VisualInformationFidelityLoss(nn.Module):
-	def __init__(self):
-		super().__init__()
-		# self.vif_metric = VisualInformationFidelity()
-		AppLog.info("Initialized VisualInformationFidelityLoss")
-
-	def forward(self, inferred_image, target_image):
-		# VIF is a similarity metric (higher is better)
-		# For a loss function, we want lower to be better, so we use 1 - VIF
-		vif_score = visual_information_fidelity(inferred_image, target_image)
-		# Ensure the score is between 0 and 1
-		return 1.0 - vif_score
+# class VisualInformationFidelityLoss(nn.Module):
+# 	def __init__(self):
+# 		super().__init__()
+# 		# self.vif_metric = VisualInformationFidelity()
+# 		AppLog.info("Initialized VisualInformationFidelityLoss")
+#
+# 	def forward(self, inferred_image, target_image):
+# 		# VIF is a similarity metric (higher is better)
+# 		# For a loss function, we want lower to be better, so we use 1 - VIF
+# 		# vif_score = visual_information_fidelity(inferred_image, target_image)
+# 		# Ensure the score is between 0 and 1
+# 		return 1.0 - vif_score
