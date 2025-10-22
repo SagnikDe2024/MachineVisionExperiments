@@ -54,8 +54,8 @@ def get_data(batch_size=16, minsize=320):
 	transform_validate = Compose([ToDtype(dtype=torch.float32, scale=True), FiveCrop(minsize)])
 
 	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform_train, cache_path='cache/CC/train')
-	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform_validate, cache_path='cache/CC/validate')
-
+	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform_validate,
+	                                  cache_path='cache/CC/validate')
 
 	train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4,
 	                          persistent_workers=True, prefetch_factor=4)
@@ -360,6 +360,8 @@ def test_and_show(size):
 
 
 if __name__ == '__main__':
+	torch.backends.cuda.matmul.fp32_precision = 'tf32'
+	torch.backends.cudnn.conv.fp32_precision = 'tf32'
 	parser = argparse.ArgumentParser(description='Train encoder and decoder model')
 	parser.add_argument('--lr-min', type=float, default=-1, help='Min learning rate for training')
 	parser.add_argument('--lr-max', type=float, default=-1, help='Max learning rate for training')
