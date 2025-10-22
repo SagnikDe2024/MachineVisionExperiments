@@ -1,14 +1,17 @@
 import argparse
 import io
 import os
+from pathlib import Path
+from random import Random
+from typing import Any
+
 import pandas as pd
 import torch
 import torchvision
 from PIL import Image
 from diskcache import Cache
-from pathlib import Path
 from torch import GradScaler
-from torch.nn import HuberLoss
+from torch.nn import SmoothL1Loss
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torch.utils.data import DataLoader, Dataset
 from torchvision import tv_tensors
@@ -20,7 +23,8 @@ from torchvision.transforms.v2 import ColorJitter, Compose, FiveCrop, Lambda, Ra
 
 from src.common.common_utils import AppLog, acquire_image
 from src.encoder_decoder.image_reconstruction_loss import SaturationLoss
-from src.image_encoder_decoder.image_codec import ImageCodec, encode_decode_from_model
+from src.image_encoder_decoder.image_codec import ImageCodec, encode_decode_from_model, prepare_encoder_data, \
+	scale_decoder_data
 
 
 class ImageFolderDataset(Dataset):
@@ -176,8 +180,8 @@ class TrainEncoderAndDecoder:
 		pics_seen = 0
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
-				stacked = torch.stack(data)
-				s, n, c, h, w = stacked.shape
+				transformed = self.validate_transform(data)
+				stacked = torch.stack(transformed)
 				stacked = stacked.to(self.device)
 				smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped = self.validate_compiled(stacked)
 				vloss['smooth_loss'] += smooth_loss1.item()
@@ -327,7 +331,7 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 
 def getImageEncoderDecoder():
 	# codec = get_simple_encoder_decoder()
-	codec = ImageCodec(64, 768, 48)
+	codec = ImageCodec(64, 512, 48)
 	return codec
 
 
@@ -342,12 +346,13 @@ def test_and_show(size):
 		enc.to(traindevice)
 		with torch.no_grad():
 			# image = acquire_image('data/CC/train/image_1000.jpeg')
-			image = acquire_image('data/normal_pic.jpg')
+			image = acquire_image('data/reddit_face.jpg')
 			image = image.unsqueeze(0)
 			image = image.to(traindevice)
 			image = resize(image, [size], InterpolationMode.BILINEAR, antialias=True)
 			print(image.shape)
 			encoded, lat = encode_decode_from_model(enc, image)
+			encoded = torch.clamp(encoded, 0, 1)
 			image_pil = torchvision.transforms.ToPILImage()(image.squeeze(0))
 			encoded_pil = torchvision.transforms.ToPILImage()(encoded.squeeze(0))
 			image_pil.show()
