@@ -52,17 +52,19 @@ def get_data(batch_size=16, minsize=320):
 	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform_train, cache_path='cache/CC/train')
 	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform_validate, cache_path='cache/CC/validate')
 
-	train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
-	val_loader = DataLoader(validate_set, batch_size=batch_size, shuffle=False, drop_last=True)
+
+	train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4,
+	                          persistent_workers=True, prefetch_factor=4)
+	val_loader = DataLoader(validate_set, batch_size=batch_size, shuffle=False, drop_last=True, num_workers=4,
+	                        persistent_workers=True, prefetch_factor=4)
 	return train_loader, val_loader
 
 
 class TrainEncoderAndDecoder:
 	def __init__(self, model, optimizer, train_device, cycle_sch, save_training_fn, starting_epoch, ending_epoch,
 	             vloss=float('inf'), scaler=None):
-		loss_fn = [HuberLoss(delta=0.5), SaturationLoss()]
-
 		loss_fn = [SmoothL1Loss(beta=0.5), SaturationLoss()]
+		self.random = Random()
 		self.device = train_device
 		self.model_orig = model
 		self.model = torch.compile(self.model_orig, mode="max-autotune").to(self.device)
