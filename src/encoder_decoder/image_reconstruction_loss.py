@@ -102,7 +102,7 @@ def get_saturation(image):
 class SaturationLoss(nn.Module):
 	def __init__(self):
 		super().__init__()
-		self.loss2 = nn.MSELoss()
+		self.loss = nn.SmoothL1Loss(beta=0.5)
 
 	def forward(self, inferred_image, target_image):
 		min_i = torch.min(inferred_image, dim=1, keepdim=True)
