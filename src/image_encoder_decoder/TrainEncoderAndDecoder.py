@@ -44,7 +44,8 @@ class ImageFolderDataset(Dataset):
 
 
 def get_data(batch_size=16, minsize=320):
-	transform_train = Compose([RandomCrop(minsize)])
+	transform_train = Compose([ToDtype(dtype=torch.float32, scale=True), RandomCrop(minsize),
+	                           ColorJitter(saturation=0.5, brightness=0.5, contrast=0.5)])
 
 	transform_validate = Compose([FiveCrop(minsize), Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0])), ])
 
@@ -61,6 +62,7 @@ class TrainEncoderAndDecoder:
 	             vloss=float('inf'), scaler=None):
 		loss_fn = [HuberLoss(delta=0.5), SaturationLoss()]
 
+		loss_fn = [SmoothL1Loss(beta=0.5), SaturationLoss()]
 		self.device = train_device
 		self.model_orig = model
 		self.model = torch.compile(self.model_orig, mode="max-autotune").to(self.device)
