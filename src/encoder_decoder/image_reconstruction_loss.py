@@ -110,11 +110,18 @@ class SaturationLoss(nn.Module):
 		min_t = torch.min(target_image, dim=1, keepdim=True)
 		max_t = torch.max(target_image, dim=1, keepdim=True)
 
-		sat = 1 - min_i.values / (max_i.values + 1e-5)
-		sat_t = 1 - min_t.values / (max_t.values + 1e-5)
-		return self.loss2(sat, sat_t)
+		sat = 1 - min_i.values / (max_i.values + 1e-6)
+		sat_t = 1 - min_t.values / (max_t.values + 1e-6)
+		return self.loss(sat, sat_t)
 
-
+def sat_loss(inferred_image, target_image):
+	min_i = torch.min(inferred_image, dim=1)
+	max_i = torch.max(inferred_image, dim=1)
+	min_t = torch.min(target_image, dim=1)
+	max_t = torch.max(target_image, dim=1)
+	sat = 1 - min_i.values / (max_i.values + 1e-5)
+	sat_t = 1 - min_t.values / (max_t.values + 1e-5)
+	return torch.pow(torch.mean(torch.pow(sat - sat_t, 2)),0.5)
 
 
 class MultiscalePerceptualLoss(nn.Module):
