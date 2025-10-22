@@ -67,7 +67,7 @@ class TrainEncoderAndDecoder:
 		self.random = Random()
 		self.device = train_device
 		self.model_orig = model
-		self.model = torch.compile(self.model_orig, mode="max-autotune").to(self.device)
+		self.model = self.model_orig.to(self.device)
 		self.save_training_fn = save_training_fn
 		self.optimizer = optimizer
 
@@ -77,7 +77,7 @@ class TrainEncoderAndDecoder:
 
 		self.trained_one_batch = False
 
-		self.loss_func = [torch.compile(l, mode='default').to(self.device).eval() for l in loss_fn]
+		self.loss_func = loss_fn
 		self.scheduler = cycle_sch
 		self.scaler = GradScaler() if scaler is None else scaler
 		self.train_transform = Compose(
