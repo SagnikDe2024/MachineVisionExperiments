@@ -36,7 +36,7 @@ class ImageFolderDataset(Dataset):
 
 	def __getitem__(self, idx):
 		if idx in self.cache:
-			return self.transform(self.cache[idx])
+			return self.transform(self.cache.get(idx))
 		image_path = self.files[idx]
 		decoded = decode_image(str(image_path), mode='RGB')
 		self.cache[idx] = decoded
