@@ -148,13 +148,10 @@ class Encoder(nn.Module):
 		self.encoder_layers = nn.Sequential(*self.all_layers_list)
 		self.layer_count = layers
 
-	def forward(self, x, ratio=1.0):
+	def forward(self, x):
 		xf, h, w = fill_as_req(x)
 		encoded = self.encoder_layers(xf)
-		encoded_channels = encoded.shape[1]
-		zeroed = round((encoded_channels - 1) * (1 - ratio))
-		new_encode = encoded[:, zeroed:, :, :]
-		return new_encode, h, w
+		return encoded, h, w
 
 
 def dumb_calc(s, j=2):
@@ -213,12 +210,7 @@ class Decoder(nn.Module):
 		self.decoder_layers = nn.Sequential(*all_layers)
 
 	def forward(self, latent_z, h, w):
-		n, c, lh, lw = latent_z.shape
-		zeros = torch.zeros([n, max(self.input_layers - c, 0), lh, lw], device=latent_z.device)
-		latent_z = torch.cat([zeros, latent_z], dim=1)
-
 		out_uncropped = self.decoder_layers(latent_z)
-
 		out = center_crop(out_uncropped, output_size=[h, w])
 		return out
 
