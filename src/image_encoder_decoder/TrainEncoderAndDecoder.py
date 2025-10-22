@@ -47,7 +47,7 @@ def get_data(batch_size=16, minsize=320):
 	transform_train = Compose([ToDtype(dtype=torch.float32, scale=True), RandomCrop(minsize),
 	                           ColorJitter(saturation=0.5, brightness=0.5, contrast=0.5)])
 
-	transform_validate = Compose([FiveCrop(minsize), Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0])), ])
+	transform_validate = Compose([ToDtype(dtype=torch.float32, scale=True), FiveCrop(minsize)])
 
 	train_set = ImageFolderDataset(Path('data/CC/train'), transform=transform_train, cache_path='cache/CC/train')
 	validate_set = ImageFolderDataset(Path('data/CC/validate'), transform=transform_validate, cache_path='cache/CC/validate')
@@ -129,22 +129,21 @@ class TrainEncoderAndDecoder:
 				stacked = torch.stack(data)
 				s, n, c, h, w = stacked.shape
 				stacked = stacked.to(self.device)
-				reshaped = torch.reshape(stacked, (s * n, c, h, w))
-				scaled = self.validate_transform(
-					reshaped
-				)
-				loss = self.get_loss_by_inference(scaled)
-				vloss += sum([s.item() for s in loss])
-				pics_seen += scaled.shape[0]
+				smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped = self.validate_compiled(stacked)
 				vloss['smooth_loss'] += smooth_loss1.item()
 				vloss['sat_loss'] += sat_loss1.item()
 				vloss['round_trip_loss'] += round_trip_loss1.item()
 				vloss['smooth_loss_10p'] += smooth_loss2.item()
+
+				if batch_idx == 0:
+					AppLog.info(f'Stacked shape: {stacked.shape}, reshaped shape: {reshaped.shape}, vloss : {vloss}')
+				pics_seen += reshaped.shape[0]
 		batches = len(val_loader)
 		vloss['smooth_loss'] /= batches
 		vloss['sat_loss'] /= batches
 		vloss['round_trip_loss'] /= batches
 		vloss['smooth_loss_10p'] /= batches
+
 		return vloss, pics_seen
 
 	def train_and_evaluate(self, train_loader, val_loader):
