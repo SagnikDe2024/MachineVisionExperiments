@@ -4,8 +4,10 @@
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/classifier/data/CIFAR" />
+      <excludeFolder url="file://$MODULE_DIR$/machinevisionenv" />
+      <excludeFolder url="file://$MODULE_DIR$/cache" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.12 (MachineVisionExperiments)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Python 3.12 (2)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
   <component name="PackageRequirementsSettings">
