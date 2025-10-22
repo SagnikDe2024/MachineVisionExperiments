@@ -83,9 +83,9 @@ class TrainEncoderAndDecoder:
 		self.train_transform = Compose([RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5)])
 		self.validate_transform = Compose([Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0]))])
 
-	def train_one_epoch(self, train_loader):
+	def train_one_epoch(self, train_loader, ratio):
 		self.model.train(True)
-		tloss = 0.0
+
 		pics_seen = 0
 
 		t_loss = {
@@ -209,8 +209,9 @@ class TrainEncoderAndDecoder:
 
 		AppLog.info(f'Training from {self.current_epoch} to {self.ending_epoch} epochs.')
 		while self.current_epoch < self.ending_epoch:
-			train_loss, p_t = self.train_one_epoch(train_loader)
-			val_loss, p_v = self.evaluate(val_loader)
+			a = self.current_epoch / self.ending_epoch
+			ratio = self.random.random() * 0.95 * a + 0.25 + 0.95 * (1 - a) if self.current_epoch > 10 else 1.0
+			train_loss, p_t = self.train_one_epoch(train_loader, ratio)
 			val_loss_dic, p_v = self.evaluate(val_loader)
 			self.scheduler.step()
 			# self.scheduler.step(val_loss,epoch=epoch)
