@@ -211,12 +211,14 @@ class TrainEncoderAndDecoder:
 		while self.current_epoch < self.ending_epoch:
 			train_loss, p_t = self.train_one_epoch(train_loader)
 			val_loss, p_v = self.evaluate(val_loader)
+			val_loss_dic, p_v = self.evaluate(val_loader)
 			self.scheduler.step()
 			# self.scheduler.step(val_loss,epoch=epoch)
 			AppLog.info(
-				f'Epoch {self.current_epoch + 1}: Training loss = {train_loss:.3e} ({p_t} samples), Validation Loss = '
-				f'{val_loss:.3e} ({p_v} samples), '
-				f'lr = {(self.scheduler.get_last_lr()[0]):.3e}')
+				f'Epoch {self.current_epoch + 1}: Training loss = {train_loss} ({p_t} samples), Validation Loss = '
+				f'{val_loss_dic}  ({p_v} samples),  '
+				f'lr = {(self.scheduler.get_last_lr()[0]):.3e} ratio = {ratio:.3f}')
+			val_loss = val_loss_dic['smooth_loss'] + val_loss_dic['sat_loss'] + val_loss_dic['round_trip_loss']
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
 				self.save_training_fn(self.model_orig, self.optimizer, self.current_epoch + 1, val_loss,
