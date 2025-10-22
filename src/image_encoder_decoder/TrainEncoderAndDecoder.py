@@ -160,6 +160,15 @@ class TrainEncoderAndDecoder:
 
 		return vloss, pics_seen
 
+	@torch.compile(mode='max-autotune')
+	def validate_compiled(self, stacked: torch.Tensor) -> tuple[
+		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+		s, n, c, h, w = stacked.shape
+		reshaped = torch.reshape(stacked, (s * n, c, h, w))
+		smooth_loss1, sat_loss1, round_trip_loss1 = self.get_loss_by_inference(reshaped, 0.1)
+		smooth_loss2 = self.get_loss_validation(reshaped, 0.1)
+		return smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped
+
 	def train_and_evaluate(self, train_loader, val_loader):
 
 		AppLog.info(f'Training from {self.current_epoch} to {self.ending_epoch} epochs.')
