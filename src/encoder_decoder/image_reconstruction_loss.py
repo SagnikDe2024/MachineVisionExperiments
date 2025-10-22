@@ -3,9 +3,11 @@ from functools import reduce
 import torch
 from torch import nn
 from torch.nn.functional import conv2d, interpolate, mse_loss
-# from torchmetrics.functional.image import visual_information_fidelity
 
-from src.common.common_utils import AppLog
+from src.common.common_utils import AppLog, acquire_image
+
+
+# from torchmetrics.functional.image import visual_information_fidelity
 
 
 def get_gradient_weights():
