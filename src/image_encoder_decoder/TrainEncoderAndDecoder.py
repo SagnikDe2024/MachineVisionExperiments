@@ -121,13 +121,15 @@ class TrainEncoderAndDecoder:
 		t_loss['round_trip_loss'] /= batches
 		return t_loss, pics_seen
 
-	def get_loss_by_inference(self, data):
+	@torch.compile(mode='max-autotune')
+	def train_compilable(self, data: torch.Tensor, ratio: float) -> tuple[Any, Any, Any, Any]:
+		data = self.train_transform(data)
+		smooth_loss, sat_loss, round_trip_loss = self.get_loss_by_inference(data, ratio)
+		return data, smooth_loss, sat_loss, round_trip_loss
+
 	def get_loss_by_inference(self, data, ratio):
 		prep = prepare_encoder_data(data)
 		with torch.autocast(device_type=self.device):
-			result, lat = encode_decode_from_model(self.model, data)
-			losses = [l(result, data) for l in self.loss_func]
-		return losses
 			encoded, h, w = self.model(prep)
 			decoded = self.model(encoded, h, w)
 			result = scale_decoder_data(decoded)
@@ -146,6 +148,8 @@ class TrainEncoderAndDecoder:
 			smooth_loss = self.loss_func[0](result, data)
 			sat_loss = self.loss_func[1](result, data)
 			round_trip_loss = self.loss_func[0](encoded_latent, partial_latent_rest)
+
+		return smooth_loss, sat_loss, round_trip_loss
 
 	def evaluate(self, val_loader):
 		self.model.eval()
