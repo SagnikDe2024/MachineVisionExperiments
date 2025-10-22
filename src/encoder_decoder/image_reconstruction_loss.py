@@ -301,6 +301,40 @@ class ReconstructionLossRelative(nn.Module):
 		weight = torch.nan_to_num(weight, nan=1, posinf=1, neginf=1)
 		return weight
 
+def testLosses(img_1, img_2):
+	# loss1 = MultiScaleGradientLoss(torch.cpu)
+	loss2 = SaturationLoss()
+	loss3 = MultiscalePerceptualLoss()
+	loss4 = ReconstructionLoss()
+	loss5 = ReconstructionLossRelative()
+
+	losses = {
+		# 'MultiScaleGradientLoss': loss1(img_1, img_2),
+		'SaturationLoss': loss2(img_1, img_2),
+		# 'MultiscalePerceptualLoss': loss3(img_1, img_2),
+		'ReconstructionLoss': loss4(img_1, img_2),
+		'ReconstructionLossRelative': loss5(img_1, img_2)
+	}
+	return losses
+
+
+def show_losses(batch):
+	image = acquire_image('data/reddit_face.jpg')
+	image = image.expand(batch, image.shape[0], image.shape[1], image.shape[2])
+	img_1 = image
+	# img_1 = torch.rand(1, 3, 256, 256)
+	# img_2 = torch.rand(1, 3, 256, 256)
+	img_2 = torch.zeros_like(img_1)
+	losses = testLosses(img_1, img_2)
+	for k, v in losses.items():
+		print(f'{k}: {v}')
+
+
+if __name__ == '__main__':
+	show_losses(1)
+	show_losses(2)
+	show_losses(4)
+	show_losses(8)
 
 # class VisualInformationFidelityLoss(nn.Module):
 # 	def __init__(self):
