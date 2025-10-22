@@ -89,11 +89,13 @@ class TrainEncoderAndDecoder:
 		self.model.train(True)
 		tloss = 0.0
 		pics_seen = 0
+
 		t_loss = {
 			'smooth_loss': 0.0,
 			'sat_loss': 0.0,
 			'round_trip_loss': 0.0
 		}
+
 		for batch_idx, data in enumerate(train_loader):
 			with torch.backends.cudnn.flags(enabled=True):
 				data = data.to(self.device)
@@ -108,18 +110,18 @@ class TrainEncoderAndDecoder:
 			scaled_loss.backward()
 			self.scaler.step(self.optimizer)
 			self.scaler.update()
-			tloss += scaled_loss.item()
 			t_loss['smooth_loss'] += smooth_loss.item()
 			t_loss['sat_loss'] += sat_loss.item()
 			t_loss['round_trip_loss'] += round_trip_loss.item()
+
 			if not self.trained_one_batch:
 				self.trained_one_batch = True
-				AppLog.info(f'Training loss: {tloss}, batch: {batch_idx + 1}')
-		return tloss, pics_seen
+				AppLog.info(f'Training loss: {t_loss}, batch: {batch_idx + 1}')
 		batches = len(train_loader)
 		t_loss['smooth_loss'] /= batches
 		t_loss['sat_loss'] /= batches
 		t_loss['round_trip_loss'] /= batches
+		return t_loss, pics_seen
 
 	def get_loss_by_inference(self, data):
 		with torch.autocast(device_type=self.device):
