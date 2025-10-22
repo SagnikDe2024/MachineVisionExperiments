@@ -80,10 +80,8 @@ class TrainEncoderAndDecoder:
 		self.loss_func = loss_fn
 		self.scheduler = cycle_sch
 		self.scaler = GradScaler() if scaler is None else scaler
-		self.train_transform = Compose(
-			[ToDtype(dtype=torch.float32, scale=True), RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5),
-			 ColorJitter(saturation=0.5, brightness=0.5, contrast=0.5), ])
-		self.validate_transform = Compose([ToDtype(dtype=torch.float32, scale=True), ])
+		self.train_transform = Compose([RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5)])
+		self.validate_transform = Compose([Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0]))])
 
 	def train_one_epoch(self, train_loader):
 		self.model.train(True)
@@ -124,10 +122,30 @@ class TrainEncoderAndDecoder:
 		return t_loss, pics_seen
 
 	def get_loss_by_inference(self, data):
+	def get_loss_by_inference(self, data, ratio):
+		prep = prepare_encoder_data(data)
 		with torch.autocast(device_type=self.device):
 			result, lat = encode_decode_from_model(self.model, data)
 			losses = [l(result, data) for l in self.loss_func]
 		return losses
+			encoded, h, w = self.model(prep)
+			decoded = self.model(encoded, h, w)
+			result = scale_decoder_data(decoded)
+
+			c = encoded.shape[-3]
+			decode_channel_ratio = round(c * ratio)
+			partial_latent_decode = torch.zeros_like(encoded, device=self.device)
+			partial_latent_rest = torch.zeros_like(encoded, device=self.device)
+			partial_latent_decode[:, :decode_channel_ratio, :, :] = encoded[:, :decode_channel_ratio, :, :]
+			partial_latent_rest[:, decode_channel_ratio:, :, :] = encoded[:, decode_channel_ratio:, :, :]
+
+			partial_decoded = self.model(partial_latent_decode, h, w)
+			rest_decoded = decoded - partial_decoded
+			encoded_latent, _, _ = self.model(rest_decoded)
+
+			smooth_loss = self.loss_func[0](result, data)
+			sat_loss = self.loss_func[1](result, data)
+			round_trip_loss = self.loss_func[0](encoded_latent, partial_latent_rest)
 
 	def evaluate(self, val_loader):
 		self.model.eval()
