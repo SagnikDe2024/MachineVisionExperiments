@@ -286,7 +286,10 @@ if __name__ == '__main__':
 	# dec = Encoder(chn)
 	# enc = Encoder(64, 256, 6, 1 / 16)
 	enc = ImageCodec(64, 768, 48)
-	AppLog.info(f'Encoder : {enc}')
+	# AppLog.info(f'Encoder : {enc}')
 	inp = torch.randn(16, 3, 320, 320)
-	ratio = 1.0
-	summary(enc, input_data=(inp, ratio))
+	lat, h, w = enc(inp)
+	res = enc(lat, h, w)
+	summary(enc, input_data=inp)
+	dec = torch.randn(16, 768, 21, 21)
+	summary(enc, input_data=[dec, 322, 322])
