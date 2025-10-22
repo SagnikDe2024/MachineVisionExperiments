@@ -223,11 +223,13 @@ class ImageCodec(nn.Module):
 		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers, in_group=16, min_depth=10, max_depth=16,
 		                       min_mid_ch=12)
 
-	def forward(self, x, ratio=1.0):
-		latent, h, w = self.encoder.forward(x, ratio=ratio)
 
-		final_res = self.decoder(latent, h, w)
-		return final_res, latent
+	def forward(self, x, h=-1, w=-1):
+		if h < 16 or w < 16:
+			return self.encoder(x)
+		else:
+			return self.decoder(x, h, w)
+
 
 
 def prepare_encoder_data(data):
@@ -241,9 +243,10 @@ def scale_decoder_data(data):
 
 def encode_decode_from_model(model, data):
 	data = prepare_encoder_data(data)
-	model_res, latent = model(data)
+	lat, h, w = model(data)
+	model_res = model(lat, h, w)
 	final_res = scale_decoder_data(model_res)
-	return final_res, latent
+	return final_res, lat
 
 
 def calcParamsForMid(in_ch, out_ch, kernek_stack: list[list[int]], param_max):
