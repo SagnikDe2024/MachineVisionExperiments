@@ -235,7 +235,7 @@ def prepare_encoder_data(data):
 
 
 def scale_decoder_data(data):
-	sc2 = data * 0.5 + 0.5
+	sc2 = data * (257/255) * 0.5 + 0.5
 	return sc2
 
 
