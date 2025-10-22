@@ -117,7 +117,12 @@ class TrainEncoderAndDecoder:
 
 	def evaluate(self, val_loader):
 		self.model.eval()
-		vloss = 0.0
+		vloss = {
+			'smooth_loss': 0.0,
+			'sat_loss': 0.0,
+			'round_trip_loss': 0.0,
+			'smooth_loss_10p': 0.0
+		}
 		pics_seen = 0
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
@@ -131,6 +136,15 @@ class TrainEncoderAndDecoder:
 				loss = self.get_loss_by_inference(scaled)
 				vloss += sum([s.item() for s in loss])
 				pics_seen += scaled.shape[0]
+				vloss['smooth_loss'] += smooth_loss1.item()
+				vloss['sat_loss'] += sat_loss1.item()
+				vloss['round_trip_loss'] += round_trip_loss1.item()
+				vloss['smooth_loss_10p'] += smooth_loss2.item()
+		batches = len(val_loader)
+		vloss['smooth_loss'] /= batches
+		vloss['sat_loss'] /= batches
+		vloss['round_trip_loss'] /= batches
+		vloss['smooth_loss_10p'] /= batches
 		return vloss, pics_seen
 
 	def train_and_evaluate(self, train_loader, val_loader):
