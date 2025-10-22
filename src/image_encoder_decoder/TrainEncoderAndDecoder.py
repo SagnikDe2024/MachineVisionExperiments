@@ -95,14 +95,12 @@ class TrainEncoderAndDecoder:
 		}
 
 		for batch_idx, data in enumerate(train_loader):
-			with torch.backends.cudnn.flags(enabled=True):
-				data = data.to(self.device)
-				data = self.train_transform(data)
-				self.optimizer.zero_grad()
-				loss = self.get_loss_by_inference(data)
+			self.optimizer.zero_grad(set_to_none=True)
+			data = data.to(self.device)
 
-			total_loss = sum(loss)
-			scaled_loss = self.scaler.scale(total_loss)
+			data, smooth_loss, sat_loss, round_trip_loss = self.train_compilable(data, ratio)
+			loss = smooth_loss + sat_loss + round_trip_loss
+			scaled_loss = self.scaler.scale(loss)
 
 			pics_seen += data.shape[0]
 			scaled_loss.backward()
@@ -150,6 +148,22 @@ class TrainEncoderAndDecoder:
 			round_trip_loss = self.loss_func[0](encoded_latent, partial_latent_rest)
 
 		return smooth_loss, sat_loss, round_trip_loss
+
+	def get_loss_validation(self, data, ratio):
+		prep = prepare_encoder_data(data)
+		with torch.autocast(device_type=self.device):
+			encoded, h, w = self.model(prep)
+			c = encoded.shape[-3]
+			decode_channel_ratio = round(c * ratio)
+			partial_latent_decode = torch.zeros_like(encoded, device=self.device)
+			partial_latent_decode[:, :decode_channel_ratio, :, :] = encoded[:, :decode_channel_ratio, :, :]
+			partial_decoded = self.model(partial_latent_decode, h, w)
+			result = scale_decoder_data(partial_decoded)
+
+			smooth_loss = self.loss_func[0](result, data)
+			sat_loss = self.loss_func[1](result, data)
+
+		return smooth_loss + sat_loss
 
 	def evaluate(self, val_loader):
 		self.model.eval()
