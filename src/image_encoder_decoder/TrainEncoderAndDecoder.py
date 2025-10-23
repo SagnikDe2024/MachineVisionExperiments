@@ -89,48 +89,6 @@ class TrainEncoderAndDecoder:
 		self.ratio_val = 0.1
 		self.multiplier = 1.0
 
-	def train_one_epoch(self, train_loader):
-		self.model.train(True)
-
-		pics_seen = 0
-
-		t_loss = {
-			'smooth_loss': 0.0,
-			'sat_loss': 0.0,
-			'round_trip_loss': 0.0
-		}
-		for batch_idx, data in enumerate(train_loader):
-			ratio = self.random.random() * 0.9 + 0.05
-			self.optimizer.zero_grad(set_to_none=True)
-			data = data.to(self.device)
-
-			data, smooth_loss, sat_loss, round_trip_loss = self.train_compilable(data, ratio)
-			loss = self.multiplier*(smooth_loss + sat_loss) + round_trip_loss
-			scaled_loss = self.scaler.scale(loss)
-
-			pics_seen += data.shape[0]
-			scaled_loss.backward()
-			self.scaler.step(self.optimizer)
-			self.scaler.update()
-			t_loss['smooth_loss'] += smooth_loss.item()
-			t_loss['sat_loss'] += sat_loss.item()
-			t_loss['round_trip_loss'] += round_trip_loss.item()
-
-			if not self.trained_one_batch:
-				self.trained_one_batch = True
-				AppLog.info(f'Training loss: {t_loss}, batch: {batch_idx + 1}')
-		batches = len(train_loader)
-		t_loss['smooth_loss'] /= batches
-		t_loss['sat_loss'] /= batches
-		t_loss['round_trip_loss'] /= batches
-		return t_loss, pics_seen
-
-	@torch.compile(mode='max-autotune')
-	def train_compilable(self, data: torch.Tensor, ratio: float) -> tuple[Any, Any, Any, Any]:
-		data = self.train_transform(data)
-		smooth_loss, sat_loss, round_trip_loss = self.get_loss_by_inference(data, ratio)
-		return data, smooth_loss, sat_loss, round_trip_loss
-
 	def get_loss_by_inference(self, data, ratio):
 		prep = prepare_encoder_data(data)
 		with torch.autocast(device_type=self.device):
@@ -143,8 +101,8 @@ class TrainEncoderAndDecoder:
 			partial_latent_decode_mask = torch.zeros_like(encoded, device=self.device)
 			partial_latent_decode_mask[:, :decode_channel_ratio, :, :] = 1
 
-			partial_latent_decode = encoded*partial_latent_decode_mask
-			partial_latent_rest = (1-partial_latent_decode_mask)*encoded
+			partial_latent_decode = encoded * partial_latent_decode_mask
+			partial_latent_rest = (1 - partial_latent_decode_mask) * encoded
 
 			partial_decoded = self.model(partial_latent_decode, h, w)
 			rest_decoded = decoded - partial_decoded
@@ -164,7 +122,7 @@ class TrainEncoderAndDecoder:
 			decode_channel_ratio = round(c * ratio)
 			partial_latent_decode_mask = torch.zeros_like(encoded, device=self.device)
 			partial_latent_decode_mask[:, :decode_channel_ratio, :, :] = 1
-			partial_latent_decode = encoded*partial_latent_decode_mask
+			partial_latent_decode = encoded * partial_latent_decode_mask
 			partial_decoded = self.model(partial_latent_decode, h, w)
 			result = scale_decoder_data(partial_decoded)
 
@@ -172,6 +130,57 @@ class TrainEncoderAndDecoder:
 			sat_loss = self.loss_func[1](result, data)
 
 		return smooth_loss + sat_loss
+
+	@torch.compile(mode='max-autotune')
+	def train_compilable(self, data: torch.Tensor, ratio: float) -> tuple[Any, Any, Any, Any]:
+		data = self.train_transform(data)
+		smooth_loss, sat_loss, round_trip_loss = self.get_loss_by_inference(data, ratio)
+		return data, smooth_loss, sat_loss, round_trip_loss
+
+	@torch.compile(mode='max-autotune-no-cudagraphs')
+	def validate_compiled(self, stacked: torch.Tensor) -> tuple[
+		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+		s, n, c, h, w = stacked.shape
+		reshaped = torch.reshape(stacked, (s * n, c, h, w))
+		smooth_loss1, sat_loss1, round_trip_loss1 = self.get_loss_by_inference(reshaped, self.ratio_val)
+		smooth_loss2 = self.get_loss_validation(reshaped, self.ratio_val)
+		return smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped
+
+	def train_one_epoch(self, train_loader):
+		self.model.train(True)
+
+		pics_seen = 0
+
+		t_loss = {
+			'smooth_loss': 0.0,
+			'sat_loss': 0.0,
+			'round_trip_loss': 0.0
+		}
+		for batch_idx, data in enumerate(train_loader):
+			ratio = self.random.random() * 0.9 + 0.05
+			self.optimizer.zero_grad(set_to_none=True)
+			data = data.to(self.device)
+
+			data, smooth_loss, sat_loss, round_trip_loss = self.train_compilable(data, ratio)
+			loss = self.multiplier * (smooth_loss + sat_loss) + round_trip_loss
+			scaled_loss = self.scaler.scale(loss)
+
+			pics_seen += data.shape[0]
+			scaled_loss.backward()
+			self.scaler.step(self.optimizer)
+			self.scaler.update()
+			t_loss['smooth_loss'] += smooth_loss.item()
+			t_loss['sat_loss'] += sat_loss.item()
+			t_loss['round_trip_loss'] += round_trip_loss.item()
+
+			if not self.trained_one_batch:
+				self.trained_one_batch = True
+				AppLog.info(f'Training loss: {t_loss}, batch: {batch_idx + 1}')
+		batches = len(train_loader)
+		t_loss['smooth_loss'] /= batches
+		t_loss['sat_loss'] /= batches
+		t_loss['round_trip_loss'] /= batches
+		return t_loss, pics_seen
 
 	def evaluate(self, val_loader):
 		self.model.eval()
@@ -202,26 +211,17 @@ class TrainEncoderAndDecoder:
 		vloss['round_trip_loss'] /= batches
 		vloss['smooth_loss_10p'] /= batches
 
-		loss_ratio = vloss['smooth_loss_10p']/vloss['smooth_loss']
-		exp_loss_ratio = 1/self.ratio_val
-		multiplier = exp_loss_ratio/loss_ratio
-		if  multiplier > 1:
-			self.multiplier = multiplier
+		loss_ratio = vloss['smooth_loss_10p'] / vloss['smooth_loss']
+		exp_loss_ratio = 1 / self.ratio_val
+		multiplier = exp_loss_ratio / loss_ratio
+		if multiplier > 1:
+			self.multiplier = max(multiplier, 0.9 * self.multiplier)
 			AppLog.info(f'New Multiplier: {self.multiplier}')
 		else:
-			new_ratio = self.ratio_val*multiplier
+			new_ratio = self.ratio_val * multiplier
 			self.ratio_val = max(new_ratio, 0.01)
 			AppLog.info(f'New Ratio: {self.ratio_val} , calc {new_ratio}')
 		return vloss, pics_seen
-
-	@torch.compile(mode='max-autotune-no-cudagraphs')
-	def validate_compiled(self, stacked: torch.Tensor) -> tuple[
-		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-		s, n, c, h, w = stacked.shape
-		reshaped = torch.reshape(stacked, (s * n, c, h, w))
-		smooth_loss1, sat_loss1, round_trip_loss1 = self.get_loss_by_inference(reshaped, self.ratio_val)
-		smooth_loss2 = self.get_loss_validation(reshaped, self.ratio_val)
-		return smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped
 
 	def train_and_evaluate(self, train_loader, val_loader):
 
