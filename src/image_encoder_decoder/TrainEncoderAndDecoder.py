@@ -140,10 +140,11 @@ class TrainEncoderAndDecoder:
 
 			c = encoded.shape[-3]
 			decode_channel_ratio = round(c * ratio)
-			partial_latent_decode = torch.zeros_like(encoded, device=self.device)
-			partial_latent_rest = torch.zeros_like(encoded, device=self.device)
-			partial_latent_decode[:, :decode_channel_ratio, :, :] = encoded[:, :decode_channel_ratio, :, :]
-			partial_latent_rest[:, decode_channel_ratio:, :, :] = encoded[:, decode_channel_ratio:, :, :]
+			partial_latent_decode_mask = torch.zeros_like(encoded, device=self.device)
+			partial_latent_decode_mask[:, :decode_channel_ratio, :, :] = 1
+
+			partial_latent_decode = encoded*partial_latent_decode_mask
+			partial_latent_rest = (1-partial_latent_decode_mask)*encoded
 
 			partial_decoded = self.model(partial_latent_decode, h, w)
 			rest_decoded = decoded - partial_decoded
@@ -161,8 +162,9 @@ class TrainEncoderAndDecoder:
 			encoded, h, w = self.model(prep)
 			c = encoded.shape[-3]
 			decode_channel_ratio = round(c * ratio)
-			partial_latent_decode = torch.zeros_like(encoded, device=self.device)
-			partial_latent_decode[:, :decode_channel_ratio, :, :] = encoded[:, :decode_channel_ratio, :, :]
+			partial_latent_decode_mask = torch.zeros_like(encoded, device=self.device)
+			partial_latent_decode_mask[:, :decode_channel_ratio, :, :] = 1
+			partial_latent_decode = encoded*partial_latent_decode_mask
 			partial_decoded = self.model(partial_latent_decode, h, w)
 			result = scale_decoder_data(partial_decoded)
 
@@ -212,7 +214,7 @@ class TrainEncoderAndDecoder:
 			AppLog.info(f'New Ratio: {self.ratio_val} , calc {new_ratio}')
 		return vloss, pics_seen
 
-	@torch.compile(mode='max-autotune')
+	@torch.compile(mode='max-autotune-no-cudagraphs')
 	def validate_compiled(self, stacked: torch.Tensor) -> tuple[
 		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 		s, n, c, h, w = stacked.shape
