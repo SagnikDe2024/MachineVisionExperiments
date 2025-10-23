@@ -86,6 +86,8 @@ class TrainEncoderAndDecoder:
 		self.scaler = GradScaler() if scaler is None else scaler
 		self.train_transform = Compose([RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5)])
 		self.validate_transform = Compose([Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0]))])
+		self.ratio_val = 0.1
+		self.multiplier = 1.0
 
 	def train_one_epoch(self, train_loader):
 		self.model.train(True)
@@ -97,13 +99,13 @@ class TrainEncoderAndDecoder:
 			'sat_loss': 0.0,
 			'round_trip_loss': 0.0
 		}
-
 		for batch_idx, data in enumerate(train_loader):
+			ratio = self.random.random() * 0.9 + 0.05
 			self.optimizer.zero_grad(set_to_none=True)
 			data = data.to(self.device)
 
 			data, smooth_loss, sat_loss, round_trip_loss = self.train_compilable(data, ratio)
-			loss = smooth_loss + sat_loss + round_trip_loss
+			loss = self.multiplier*(smooth_loss + sat_loss) + round_trip_loss
 			scaled_loss = self.scaler.scale(loss)
 
 			pics_seen += data.shape[0]
@@ -198,6 +200,16 @@ class TrainEncoderAndDecoder:
 		vloss['round_trip_loss'] /= batches
 		vloss['smooth_loss_10p'] /= batches
 
+		loss_ratio = vloss['smooth_loss_10p']/vloss['smooth_loss']
+		exp_loss_ratio = 1/self.ratio_val
+		multiplier = exp_loss_ratio/loss_ratio
+		if  multiplier > 1:
+			self.multiplier = multiplier
+			AppLog.info(f'New Multiplier: {self.multiplier}')
+		else:
+			new_ratio = self.ratio_val*multiplier
+			self.ratio_val = max(new_ratio, 0.01)
+			AppLog.info(f'New Ratio: {self.ratio_val} , calc {new_ratio}')
 		return vloss, pics_seen
 
 	@torch.compile(mode='max-autotune')
@@ -213,9 +225,6 @@ class TrainEncoderAndDecoder:
 
 		AppLog.info(f'Training from {self.current_epoch} to {self.ending_epoch} epochs.')
 		while self.current_epoch < self.ending_epoch:
-			a = self.current_epoch / self.ending_epoch
-			ratio = self.random.random() * 0.95 * a + 0.25 + 0.95 * (1 - a) if self.current_epoch > 10 else 1.0
-			train_loss, p_t = self.train_one_epoch(train_loader, ratio)
 			train_loss, p_t = self.train_one_epoch(train_loader)
 			val_loss_dic, p_v = self.evaluate(val_loader)
 			self.scheduler.step()
