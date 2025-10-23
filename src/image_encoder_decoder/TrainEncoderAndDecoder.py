@@ -87,7 +87,7 @@ class TrainEncoderAndDecoder:
 		self.train_transform = Compose([RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5)])
 		self.validate_transform = Compose([Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0]))])
 
-	def train_one_epoch(self, train_loader, ratio):
+	def train_one_epoch(self, train_loader):
 		self.model.train(True)
 
 		pics_seen = 0
@@ -205,8 +205,8 @@ class TrainEncoderAndDecoder:
 		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 		s, n, c, h, w = stacked.shape
 		reshaped = torch.reshape(stacked, (s * n, c, h, w))
-		smooth_loss1, sat_loss1, round_trip_loss1 = self.get_loss_by_inference(reshaped, 0.1)
-		smooth_loss2 = self.get_loss_validation(reshaped, 0.1)
+		smooth_loss1, sat_loss1, round_trip_loss1 = self.get_loss_by_inference(reshaped, self.ratio_val)
+		smooth_loss2 = self.get_loss_validation(reshaped, self.ratio_val)
 		return smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped
 
 	def train_and_evaluate(self, train_loader, val_loader):
@@ -216,13 +216,14 @@ class TrainEncoderAndDecoder:
 			a = self.current_epoch / self.ending_epoch
 			ratio = self.random.random() * 0.95 * a + 0.25 + 0.95 * (1 - a) if self.current_epoch > 10 else 1.0
 			train_loss, p_t = self.train_one_epoch(train_loader, ratio)
+			train_loss, p_t = self.train_one_epoch(train_loader)
 			val_loss_dic, p_v = self.evaluate(val_loader)
 			self.scheduler.step()
 			# self.scheduler.step(val_loss,epoch=epoch)
 			AppLog.info(
 				f'Epoch {self.current_epoch + 1}: Training loss = {train_loss} ({p_t} samples), Validation Loss = '
 				f'{val_loss_dic}  ({p_v} samples),  '
-				f'lr = {(self.scheduler.get_last_lr()[0]):.3e} ratio = {ratio:.3f}')
+				f'lr = {(self.scheduler.get_last_lr()[0]):.3e} ')
 			val_loss = val_loss_dic['smooth_loss'] + val_loss_dic['sat_loss'] + val_loss_dic['round_trip_loss']
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
