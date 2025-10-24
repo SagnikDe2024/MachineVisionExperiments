@@ -12,7 +12,7 @@ from PIL import Image
 from diskcache import Cache
 from torch import GradScaler
 from torch.nn import SmoothL1Loss
-from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader, Dataset
 from torchvision import tv_tensors
 from torchvision.io import decode_image
@@ -86,8 +86,6 @@ class TrainEncoderAndDecoder:
 		self.scaler = GradScaler() if scaler is None else scaler
 		self.train_transform = Compose([RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5)])
 		self.validate_transform = Compose([Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0]))])
-		self.ratio_val = 0.1
-		self.multiplier = 1.0
 
 	def get_loss_by_inference(self, data, ratio):
 		prep = prepare_encoder_data(data)
@@ -156,6 +154,7 @@ class TrainEncoderAndDecoder:
 			'sat_loss': 0.0,
 			'round_trip_loss': 0.0
 		}
+
 		for batch_idx, data in enumerate(train_loader):
 			ratio = self.random.random() * 0.9 + 0.05
 			self.optimizer.zero_grad(set_to_none=True)
@@ -172,7 +171,7 @@ class TrainEncoderAndDecoder:
 			t_loss['smooth_loss'] += smooth_loss.item()
 			t_loss['sat_loss'] += sat_loss.item()
 			t_loss['round_trip_loss'] += round_trip_loss.item()
-
+			self.scheduler.step()
 			if not self.trained_one_batch:
 				self.trained_one_batch = True
 				AppLog.info(f'Training loss: {t_loss}, batch: {batch_idx + 1}')
@@ -211,16 +210,6 @@ class TrainEncoderAndDecoder:
 		vloss['round_trip_loss'] /= batches
 		vloss['smooth_loss_10p'] /= batches
 
-		loss_ratio = vloss['smooth_loss_10p'] / vloss['smooth_loss']
-		exp_loss_ratio = 1 / self.ratio_val
-		multiplier = exp_loss_ratio / loss_ratio
-		if multiplier > 1:
-			self.multiplier = max(multiplier, 0.9 * self.multiplier)
-			AppLog.info(f'New Multiplier: {self.multiplier}')
-		else:
-			new_ratio = self.ratio_val * multiplier
-			self.ratio_val = max(new_ratio, 0.01)
-			AppLog.info(f'New Ratio: {self.ratio_val} , calc {new_ratio}')
 		return vloss, pics_seen
 
 	def train_and_evaluate(self, train_loader, val_loader):
@@ -229,8 +218,6 @@ class TrainEncoderAndDecoder:
 		while self.current_epoch < self.ending_epoch:
 			train_loss, p_t = self.train_one_epoch(train_loader)
 			val_loss_dic, p_v = self.evaluate(val_loader)
-			self.scheduler.step()
-			# self.scheduler.step(val_loss,epoch=epoch)
 			AppLog.info(
 				f'Epoch {self.current_epoch + 1}: Training loss = {train_loss} ({p_t} samples), Validation Loss = '
 				f'{val_loss_dic}  ({p_v} samples),  '
@@ -309,10 +296,10 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p, sch, sc: save_training_state(save_location, enc_p,
 	                                                                                             optimizer_p, epoch_p,
 	                                                                                             vloss_p, sch, sc)
-	linearLr = LinearLR(optimizer, start_factor=lr_max, total_iters=8)
-	cosinelr = CosineAnnealingLR(optimizer, T_max=(max_epochs - 9))
-	# cyc_sch = ReduceLROnPlateau(optimizer, mode='min', factor=1 / 3, patience=3, min_lr=lr_min, eps=lr_min / 10)
-	cyc_sch = SequentialLR(optimizer, schedulers=[linearLr, cosinelr], milestones=[9])
+	# linearLr = LinearLR(optimizer, start_factor=lr_max, total_iters=8)
+	# cosinelr = CosineAnnealingLR(optimizer, T_max=(max_epochs - 9))
+	# # cyc_sch = SequentialLR(optimizer, schedulers=[linearLr, cosinelr], milestones=[9])
+	cyc_sch = OneCycleLR(optimizer, max_lr=lr_max, epochs=max_epochs, steps_per_epoch=len(train_loader))
 
 	if os.path.exists(save_location) and not start_new:
 		if lr_max_arg > 0 and lr_min_arg > 0:
@@ -372,8 +359,6 @@ def test_and_show(size):
 
 
 if __name__ == '__main__':
-	torch.backends.cuda.matmul.fp32_precision = 'tf32'
-	torch.backends.cudnn.conv.fp32_precision = 'tf32'
 	parser = argparse.ArgumentParser(description='Train encoder and decoder model')
 	parser.add_argument('--lr-min', type=float, default=-1, help='Min learning rate for training')
 	parser.add_argument('--lr-max', type=float, default=-1, help='Max learning rate for training')
