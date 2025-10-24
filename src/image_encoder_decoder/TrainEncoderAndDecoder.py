@@ -87,17 +87,12 @@ class TrainEncoderAndDecoder:
 		self.train_transform = Compose([RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5)])
 		self.validate_transform = Compose([Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0]))])
 
-	def get_loss_by_inference(self, data, ratio):
+	def get_loss_by_inference(self, data, partial_latent_decode_mask):
 		prep = prepare_encoder_data(data)
 		with torch.autocast(device_type=self.device):
 			encoded, h, w = self.model(prep)
 			decoded = self.model(encoded, h, w)
 			result = scale_decoder_data(decoded)
-
-			c = encoded.shape[-3]
-			decode_channel_ratio = round(c * ratio)
-			partial_latent_decode_mask = torch.zeros_like(encoded, device=self.device)
-			partial_latent_decode_mask[:, :decode_channel_ratio, :, :] = 1
 
 			partial_latent_decode = encoded * partial_latent_decode_mask
 			partial_latent_rest = (1 - partial_latent_decode_mask) * encoded
@@ -130,19 +125,33 @@ class TrainEncoderAndDecoder:
 		return smooth_loss + sat_loss
 
 	@torch.compile(mode='max-autotune')
-	def train_compilable(self, data: torch.Tensor, ratio: float) -> tuple[Any, Any, Any, Any]:
+	def train_compilable(self, data: torch.Tensor, partial_latent_decode_mask: torch.Tensor) -> tuple[
+		Any, Any, Any, Any]:
 		data = self.train_transform(data)
-		smooth_loss, sat_loss, round_trip_loss = self.get_loss_by_inference(data, ratio)
+		smooth_loss, sat_loss, round_trip_loss = self.get_loss_by_inference(data, partial_latent_decode_mask)
 		return data, smooth_loss, sat_loss, round_trip_loss
 
-	@torch.compile(mode='max-autotune-no-cudagraphs')
-	def validate_compiled(self, stacked: torch.Tensor) -> tuple[
+	@torch.compile(mode='max-autotune')
+	def validate_compiled(self, reshaped: torch.Tensor, partial_latent_decode_mask) -> tuple[
 		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-		s, n, c, h, w = stacked.shape
-		reshaped = torch.reshape(stacked, (s * n, c, h, w))
-		smooth_loss1, sat_loss1, round_trip_loss1 = self.get_loss_by_inference(reshaped, self.ratio_val)
-		smooth_loss2 = self.get_loss_validation(reshaped, self.ratio_val)
+
+		smooth_loss1, sat_loss1, round_trip_loss1 = self.get_loss_by_inference(reshaped, partial_latent_decode_mask)
+		# smooth_loss2 = self.get_loss_validation(reshaped, self.ratio_val)
+		smooth_loss2 = torch.tensor(-1)
 		return smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped
+
+	def common_train_validate_ratio(self, ratio: float,
+	                                data: Tensor) -> tuple[Tensor, Tensor]:
+		n, _, h, w = data.shape
+		henc = ceil(h / 16)
+		wenc = ceil(w / 16)
+		dim = (n, 512, henc, wenc)
+		data = data.to(self.device)
+		c = dim[-3]
+		decode_channel_ratio = round(c * ratio)
+		partial_latent_decode_mask = torch.zeros(dim, device=self.device)
+		partial_latent_decode_mask[:, :decode_channel_ratio, :, :] = 1
+		return partial_latent_decode_mask, data
 
 	def train_one_epoch(self, train_loader):
 		self.model.train(True)
@@ -158,10 +167,9 @@ class TrainEncoderAndDecoder:
 		for batch_idx, data in enumerate(train_loader):
 			ratio = self.random.random() * 0.9 + 0.05
 			self.optimizer.zero_grad(set_to_none=True)
-			data = data.to(self.device)
-
-			data, smooth_loss, sat_loss, round_trip_loss = self.train_compilable(data, ratio)
-			loss = self.multiplier * (smooth_loss + sat_loss) + round_trip_loss
+			partial_latent_decode_mask, data = self.common_train_validate_ratio(ratio, data)
+			data, smooth_loss, sat_loss, round_trip_loss = self.train_compilable(data, partial_latent_decode_mask)
+			loss = (smooth_loss + sat_loss) + round_trip_loss
 			scaled_loss = self.scaler.scale(loss)
 
 			pics_seen += data.shape[0]
@@ -194,8 +202,10 @@ class TrainEncoderAndDecoder:
 			for batch_idx, data, in enumerate(val_loader):
 				transformed = self.validate_transform(data)
 				stacked = torch.stack(transformed)
-				stacked = stacked.to(self.device)
-				smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped = self.validate_compiled(stacked)
+				s, n, c, h, w = stacked.shape
+				reshaped = torch.reshape(stacked, (s * n, c, h, w))
+				partial_latent_decode_mask, reshaped = self.common_train_validate_ratio(ratio, reshaped)
+				smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped = self.validate_compiled(reshaped, partial_latent_decode_mask)
 				vloss['smooth_loss'] += smooth_loss1.item()
 				vloss['sat_loss'] += sat_loss1.item()
 				vloss['round_trip_loss'] += round_trip_loss1.item()
