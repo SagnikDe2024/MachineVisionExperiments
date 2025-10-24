@@ -100,10 +100,10 @@ class TrainEncoderAndDecoder:
 			partial_decoded = self.model(partial_latent_decode, h, w)
 			rest_decoded = decoded - partial_decoded
 			encoded_latent, _, _ = self.model(rest_decoded)
-
-			smooth_loss = self.loss_func[0](result, data)
-			sat_loss = self.loss_func[1](result, data)
-			round_trip_loss = self.loss_func[0](encoded_latent, partial_latent_rest)
+			m = 100
+			smooth_loss = ((self.loss_func[0](result, data))*1.1)*m
+			sat_loss = ((self.loss_func[1](result, data))*0.9)*m
+			round_trip_loss = ((self.loss_func[0](encoded_latent, partial_latent_rest))*10)*m
 
 		return smooth_loss, sat_loss, round_trip_loss
 
