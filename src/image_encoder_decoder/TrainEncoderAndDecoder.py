@@ -1,6 +1,7 @@
 import argparse
 import io
 import os
+from math import ceil
 from pathlib import Path
 from random import Random
 from typing import Any
@@ -10,7 +11,7 @@ import torch
 import torchvision
 from PIL import Image
 from diskcache import Cache
-from torch import GradScaler
+from torch import GradScaler, Tensor
 from torch.nn import SmoothL1Loss
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader, Dataset
@@ -198,8 +199,10 @@ class TrainEncoderAndDecoder:
 			'smooth_loss_10p': 0.0
 		}
 		pics_seen = 0
+
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
+				ratio = self.random.random() * 0.98 + 0.01
 				transformed = self.validate_transform(data)
 				stacked = torch.stack(transformed)
 				s, n, c, h, w = stacked.shape
@@ -366,7 +369,7 @@ def test_and_show(size):
 		enc.to(traindevice)
 		with torch.no_grad():
 			# image = acquire_image('data/CC/train/image_1000.jpeg')
-			image = acquire_image('data/reddit_face.jpg')
+			image = acquire_image('data/normal_pic.jpg')
 			image = image.unsqueeze(0)
 			image = image.to(traindevice)
 			image = resize(image, [size], InterpolationMode.BILINEAR, antialias=True)
