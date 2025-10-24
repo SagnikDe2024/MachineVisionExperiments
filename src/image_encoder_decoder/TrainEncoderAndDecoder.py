@@ -289,9 +289,20 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 	enc = getImageEncoderDecoder().to(traindevice)
 	lr_min = lr_min_arg if lr_min_arg > 0 else 1e-3
 	lr_max = lr_max_arg if lr_max_arg > 0 else 1e-2
+	decay_params = []
+	no_decay_params = []
 
-	optimizer = torch.optim.NAdam(enc.parameters(), lr=lr_max)
-	max_epochs = 75
+	for name, param in enc.named_parameters():
+		if not param.requires_grad:
+			continue
+		# Apply weight decay only to convolutional layers, not to normalization layers
+		if 'GroupNorm' in name or 'norm' in name or 'bn' in name or 'bias' in name:
+			no_decay_params.append(param)
+		else:
+			decay_params.append(param)
+
+	optimizer = torch.optim.NAdam([{'params': decay_params, 'weight_decay': 1e-4},{'params': no_decay_params, 'weight_decay': 0}], lr=lr_min, decoupled_weight_decay=True)
+	max_epochs = 30
 	train_loader, val_loader = get_data(batch_size=batch_size, minsize=size)
 	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p, sch, sc: save_training_state(save_location, enc_p,
 	                                                                                             optimizer_p, epoch_p,
