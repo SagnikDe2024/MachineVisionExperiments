@@ -100,10 +100,17 @@ class TrainEncoderAndDecoder:
 			partial_decoded = self.model(partial_latent_decode, h, w)
 			rest_decoded = decoded - partial_decoded
 			encoded_latent, _, _ = self.model(rest_decoded)
-			m = 100
-			smooth_loss = ((self.loss_func[0](result, data))*1.1)*m
-			sat_loss = ((self.loss_func[1](result, data))*0.9)*m
-			round_trip_loss = ((self.loss_func[0](encoded_latent, partial_latent_rest))*10)*m
+			m = 1
+			ratio = torch.mean(partial_latent_decode_mask)
+			partial_result = scale_decoder_data(partial_decoded)
+			partial_res_smooth = (self.loss_func[0](partial_result, data)) * ratio
+			partial_res_sat = (self.loss_func[1](partial_result, data)) * ratio
+			total_smooth = self.loss_func[0](result, data)
+			total_sat = self.loss_func[1](result, data)
+
+			smooth_loss = ((partial_res_smooth + total_smooth) * 1.5) * m
+			sat_loss = ((partial_res_sat + total_sat) * 0.5) * m
+			round_trip_loss = ((self.loss_func[0](encoded_latent, partial_latent_rest)) * 1) * m
 
 		return smooth_loss, sat_loss, round_trip_loss
 
