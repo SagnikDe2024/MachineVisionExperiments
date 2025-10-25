@@ -163,9 +163,9 @@ class TrainEncoderAndDecoder:
 			'sat_loss': 0.0,
 			'round_trip_loss': 0.0
 		}
-
+		batches = len(train_loader)
 		for batch_idx, data in enumerate(train_loader):
-			ratio = self.random.random() * 0.9 + 0.05
+			ratio = (1 - (batch_idx / batches)) * 0.90 + 0.09
 			self.optimizer.zero_grad(set_to_none=True)
 			partial_latent_decode_mask, data = self.common_train_validate_ratio(ratio, data)
 			data, smooth_loss, sat_loss, round_trip_loss = self.train_compilable(data, partial_latent_decode_mask)
@@ -183,7 +183,7 @@ class TrainEncoderAndDecoder:
 			if not self.trained_one_batch:
 				self.trained_one_batch = True
 				AppLog.info(f'Training loss: {t_loss}, batch: {batch_idx + 1}')
-		batches = len(train_loader)
+
 		t_loss['smooth_loss'] /= batches
 		t_loss['sat_loss'] /= batches
 		t_loss['round_trip_loss'] /= batches
@@ -212,8 +212,6 @@ class TrainEncoderAndDecoder:
 				vloss['round_trip_loss'] += round_trip_loss1.item()
 				vloss['smooth_loss_10p'] += smooth_loss2.item()
 
-				if batch_idx == 0:
-					AppLog.info(f'Stacked shape: {stacked.shape}, reshaped shape: {reshaped.shape}, vloss : {vloss}')
 				pics_seen += reshaped.shape[0]
 		batches = len(val_loader)
 		vloss['smooth_loss'] /= batches
