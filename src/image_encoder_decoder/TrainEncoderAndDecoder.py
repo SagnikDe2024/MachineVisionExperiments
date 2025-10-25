@@ -361,13 +361,13 @@ def getImageEncoderDecoder():
 
 def test_and_show(size):
 	save_location = 'checkpoints/encode_decode/train_codec.pth'
-	enc = getImageEncoderDecoder()
+	codec_model = getImageEncoderDecoder()
 	traindevice = "cuda" if torch.cuda.is_available() else "cpu"
 	if os.path.exists(save_location):
-		enc, optimizer, epoch, vloss, _, _ = load_training_state(save_location, enc)
+		codec_model, optimizer, epoch, vloss, _, _ = load_training_state(save_location, codec_model)
 		AppLog.info(f'Loaded checkpoint from epoch {epoch} with vloss {vloss:.3e}')
-		enc.eval()
-		enc.to(traindevice)
+		codec_model.eval()
+		codec_model.to(traindevice)
 		with torch.no_grad():
 			# image = acquire_image('data/CC/train/image_1000.jpeg')
 			image = acquire_image('data/normal_pic.jpg')
@@ -375,12 +375,24 @@ def test_and_show(size):
 			image = image.to(traindevice)
 			image = resize(image, [size], InterpolationMode.BILINEAR, antialias=True)
 			print(image.shape)
-			encoded, lat = encode_decode_from_model(enc, image)
-			encoded = torch.clamp(encoded, 0, 1)
+			n, _, h, w = image.shape
+			henc = ceil(h / 16)
+			wenc = ceil(w / 16)
+			dim = (n, 512, henc, wenc)
+			c = dim[-3]
+			decode_channel_ratio = round(c * 4 / 4)
+			partial_latent_decode_mask = torch.zeros(dim, device=image.device)
+			partial_latent_decode_mask[:, :decode_channel_ratio, :, :] = 1
+			prep = prepare_encoder_data(image)
+			lat, h, w = codec_model(prep)
+			lat = lat * partial_latent_decode_mask
+			res = codec_model(lat, h, w)
+			res = torch.clamp(scale_decoder_data(res), 0, 1)
+
 			image_pil = torchvision.transforms.ToPILImage()(image.squeeze(0))
-			encoded_pil = torchvision.transforms.ToPILImage()(encoded.squeeze(0))
+			res_pil = torchvision.transforms.ToPILImage()(res.squeeze(0))
 			image_pil.show()
-			encoded_pil.show()
+			res_pil.show()
 
 
 if __name__ == '__main__':
