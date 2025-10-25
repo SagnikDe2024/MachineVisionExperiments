@@ -1,8 +1,13 @@
+from math import lcm
+
 import numpy as np
 import torch
 from numpy import dtype, ndarray
+from torch import nn
+from torch.nn import ModuleDict
 from torchvision.io import write_png
 
+from src.common.common_utils import AppLog
 from src.common.common_utils import convert_complex_to_rgb
 
 
@@ -82,3 +87,50 @@ def find_complex_diff(pic: torch.tensor):
 	i_diff = torch.where(xdiff.imag.abs() > ydiff.real.abs(), xdiff.imag, ydiff.real)
 	complex_diff = r_diff + 1j * i_diff
 	return complex_diff
+
+
+class SimpleDenseLayer(nn.Module):
+
+	def __init__(self, in_ch, mid_ch, out_ch, depth, groups, normed=True, in_groups=1, out_groups=1, dropped_out=0.2):
+		super().__init__()
+		divisibility = lcm(4, groups)
+		mid_ch = round(mid_ch / divisibility) * divisibility
+		in_div = lcm(4, groups, in_groups)
+		in_ch = round(in_ch / in_div) * in_div
+		out_div = lcm(4, groups, out_groups)
+		out_ch = round(out_ch / out_div) * out_div
+
+		self.mid_ch = mid_ch
+		self.out_ch = out_ch
+		self.in_ch = in_ch
+		self.inp_conv = nn.LazyConv2d(out_channels=in_ch, kernel_size=1, padding=0, bias=True, groups=in_groups)
+		self.mid_conv_modules = ModuleDict()
+		use_bias = not normed
+		cost = 0
+		kernel_list = [3 for _ in range(depth)]
+		for i, k in enumerate(kernel_list):
+			conv = nn.LazyConv2d(out_channels=mid_ch, kernel_size=k, padding=k // 2, bias=use_bias, groups=groups,
+			                     padding_mode='reflect')
+			cost += (mid_ch * k / groups) ** 2 * (i + 1) + mid_ch * 2
+			norm = nn.GroupNorm(groups, mid_ch) if normed else nn.Identity()
+			shuffle_1 = nn.ChannelShuffle(2)
+			shuffle_2 = nn.ChannelShuffle(groups)
+			dropped_out_layer = nn.Dropout(dropped_out)
+			act = nn.Mish()
+			self.mid_conv_modules[f'{k}'] = nn.Sequential(shuffle_1, conv, shuffle_2, norm, act, dropped_out_layer)
+		self.out_conv = nn.LazyConv2d(out_channels=out_ch, kernel_size=1, padding=0, bias=True, groups=out_groups)
+		cost += out_ch * 2 + mid_ch * len(kernel_list)
+		AppLog.info(
+			f'Dense layer in_ch={self.in_ch} mid_ch={self.mid_ch}, out_ch={self.out_ch}, groups={groups}, '
+			f'kernels={kernel_list}')
+		AppLog.info(f'Approx params {cost}')
+		AppLog.info('------------------------------------')
+
+	def forward(self, x):
+		dense_input = self.inp_conv(x)
+
+		for mid_conv in self.mid_conv_modules.values():
+			mid_conv_res = mid_conv(dense_input)
+			dense_input = torch.cat([mid_conv_res, dense_input], dim=1)
+		out = self.out_conv(dense_input)
+		return out
