@@ -15,16 +15,15 @@ from torch import GradScaler, Tensor
 from torch.nn import SmoothL1Loss
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader, Dataset
-from torchvision import tv_tensors
 from torchvision.io import decode_image
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import resize
-from torchvision.transforms.v2 import ColorJitter, Compose, FiveCrop, Lambda, RandomCrop, RandomHorizontalFlip, \
-	RandomVerticalFlip, ToDtype
+from torchvision.transforms.v2 import ColorJitter, Compose, FiveCrop, RandomCrop, RandomHorizontalFlip, \
+	RandomRotation, RandomVerticalFlip, ToDtype
 
 from src.common.common_utils import AppLog, acquire_image
 from src.encoder_decoder.image_reconstruction_loss import SaturationLoss
-from src.image_encoder_decoder.image_codec import ImageCodec, encode_decode_from_model, prepare_encoder_data, \
+from src.image_encoder_decoder.image_codec import ImageCodec, prepare_encoder_data, \
 	scale_decoder_data
 
 
@@ -50,7 +49,8 @@ class ImageFolderDataset(Dataset):
 
 def get_data(batch_size=16, minsize=320):
 	transform_train = Compose([ToDtype(dtype=torch.float32, scale=True), RandomCrop(minsize),
-	                           ColorJitter(saturation=0.5, brightness=0.5, contrast=0.5)])
+	                           ColorJitter(saturation=0.5, brightness=0.5, contrast=0.5),
+	                           RandomRotation(135, InterpolationMode.BILINEAR)])
 
 	transform_validate = Compose([ToDtype(dtype=torch.float32, scale=True), FiveCrop(minsize)])
 
@@ -60,7 +60,7 @@ def get_data(batch_size=16, minsize=320):
 
 	train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=4,
 	                          persistent_workers=True, prefetch_factor=4)
-	val_loader = DataLoader(validate_set, batch_size=batch_size, shuffle=False, drop_last=True, num_workers=4,
+	val_loader = DataLoader(validate_set, batch_size=batch_size // 5, shuffle=False, drop_last=True, num_workers=4,
 	                        persistent_workers=True, prefetch_factor=4)
 	return train_loader, val_loader
 
@@ -86,7 +86,6 @@ class TrainEncoderAndDecoder:
 		self.scheduler = cycle_sch
 		self.scaler = GradScaler() if scaler is None else scaler
 		self.train_transform = Compose([RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5)])
-		self.validate_transform = Compose([Lambda(lambda crops: tv_tensors.wrap(crops, like=crops[0]))])
 
 	def get_loss_by_inference(self, data, partial_latent_decode_mask):
 		prep = prepare_encoder_data(data)
@@ -203,8 +202,7 @@ class TrainEncoderAndDecoder:
 		with torch.no_grad():
 			for batch_idx, data, in enumerate(val_loader):
 				ratio = self.random.random() * 0.98 + 0.01
-				transformed = self.validate_transform(data)
-				stacked = torch.stack(transformed)
+				stacked = torch.stack(data)
 				s, n, c, h, w = stacked.shape
 				reshaped = torch.reshape(stacked, (s * n, c, h, w))
 				partial_latent_decode_mask, reshaped = self.common_train_validate_ratio(ratio, reshaped)
