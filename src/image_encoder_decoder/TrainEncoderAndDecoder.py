@@ -311,14 +311,12 @@ def train_codec(lr_min_arg, lr_max_arg, batch_size, size, reset_vloss, start_new
 			decay_params.append(param)
 
 	optimizer = torch.optim.NAdam([{'params': decay_params, 'weight_decay': 1e-4},{'params': no_decay_params, 'weight_decay': 0}], lr=lr_min, decoupled_weight_decay=True)
-	max_epochs = 30
+
+	max_epochs = 40
 	train_loader, val_loader = get_data(batch_size=batch_size, minsize=size)
 	save_training_fn = lambda enc_p, optimizer_p, epoch_p, vloss_p, sch, sc: save_training_state(save_location, enc_p,
 	                                                                                             optimizer_p, epoch_p,
 	                                                                                             vloss_p, sch, sc)
-	# linearLr = LinearLR(optimizer, start_factor=lr_max, total_iters=8)
-	# cosinelr = CosineAnnealingLR(optimizer, T_max=(max_epochs - 9))
-	# # cyc_sch = SequentialLR(optimizer, schedulers=[linearLr, cosinelr], milestones=[9])
 	cyc_sch = OneCycleLR(optimizer, max_lr=lr_max, epochs=max_epochs, steps_per_epoch=len(train_loader))
 
 	if os.path.exists(save_location) and not start_new:
