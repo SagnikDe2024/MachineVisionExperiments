@@ -68,7 +68,7 @@ def get_data(batch_size=16, minsize=320):
 class TrainEncoderAndDecoder:
 	def __init__(self, model, optimizer, train_device, cycle_sch, save_training_fn, starting_epoch, ending_epoch,
 	             vloss=float('inf'), scaler=None):
-		loss_fn = [SmoothL1Loss(beta=1), SaturationLoss()]
+		loss_fn = [SmoothL1Loss(beta=0.5), SaturationLoss()]
 		self.random = Random()
 		self.device = train_device
 		self.model_orig = model
