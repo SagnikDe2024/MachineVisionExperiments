@@ -4,7 +4,6 @@ import os
 from math import ceil
 from pathlib import Path
 from random import Random
-from typing import Any
 
 import pandas as pd
 import torch
@@ -22,7 +21,6 @@ from torchvision.transforms.v2 import ColorJitter, Compose, FiveCrop, RandomCrop
 	RandomRotation, RandomVerticalFlip, ToDtype
 
 from src.common.common_utils import AppLog, acquire_image
-from src.encoder_decoder.image_reconstruction_loss import SaturationLoss
 from src.image_encoder_decoder.image_codec import ImageCodec, prepare_encoder_data, \
 	scale_decoder_data
 
@@ -86,6 +84,25 @@ class TrainEncoderAndDecoder:
 		self.scheduler = cycle_sch
 		self.scaler = GradScaler() if scaler is None else scaler
 		self.train_transform = Compose([RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5)])
+		self.stds = []
+		self.means = []
+
+	def add_mean_std(self, mean, std):
+		self.means.append(mean)
+		self.stds.append(std)
+		if len(self.means) <= 1:
+			return mean, std
+
+		mean_stacked = torch.stack(self.means)
+		std_stacked = torch.stack(self.stds)
+		combined_mean = torch.mean(mean_stacked, dim=0)
+
+		mean_of_variances = torch.mean(std_stacked ** 2, dim=0)
+		variances_of_means = torch.var(mean_stacked, dim=0)
+
+		combined_std = torch.sqrt(mean_of_variances + variances_of_means)
+
+		return combined_mean, combined_std
 
 	def get_loss_by_inference(self, data, partial_latent_decode_mask):
 		prep = prepare_encoder_data(data)
@@ -137,6 +154,10 @@ class TrainEncoderAndDecoder:
 		data = self.train_transform(data)
 		smooth_loss, sat_loss, round_trip_loss = self.get_loss_by_inference(data, partial_latent_decode_mask)
 		return data, smooth_loss, sat_loss, round_trip_loss
+		batch_mean = torch.mean(data, dim=(0, 2, 3))
+		batch_std = torch.std(data, dim=(0, 2, 3))
+		model_mean, model_std = self.add_mean_std(batch_mean, batch_std)
+		self.model.set_mean_std(model_mean, model_std)
 
 	@torch.compile(mode='max-autotune')
 	def validate_compiled(self, reshaped: torch.Tensor, partial_latent_decode_mask) -> tuple[
