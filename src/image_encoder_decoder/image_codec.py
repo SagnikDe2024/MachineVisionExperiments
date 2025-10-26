@@ -9,23 +9,6 @@ from src.common.image_delentropy import SimpleDenseLayer
 from src.common.common_utils import AppLog
 
 
-# Let c_out/c_in = j where j > 1 (for an encoder)
-# Now for compute reasons the features are compressed to m features, convolved, normed, activated and the output is
-# squeezed again.
-# Let c <- c_in and c j <- c_out.
-# The operation is as follows:
-# c [1 x 1] m -> m [ks x 1] m -> m [1 x ks] (m) -> batchnorm -> activate -> (m) [1 x 1 + 1 (for bias)] (c j/n)
-# Here ks is the kernel size, ks = 2*k-1, where k = 0,1,2 ... for ks as 1,3,5 etc.
-# Total learnable params = c*m + m^2*ks + m j c/n  + batchnorm (2 * m) +  (j c / n)
-
-# If there are n kernels we have
-# c*m*n + 2*m^2*(ks_1 + ks_2 ... ks_n) + 2*m*n (batchnorm) + m*j*c + j*c (bias term)
-# => 2*m^2*(ks_1 + ks_2 ... ks_n) + m*(c*n + 2*n + j*c) + j*c
-# Let P we the total number of params we need. Then we have
-# 2*m^2*(ks_1 + ks_2 ... ks_n) + m*(c*n + 2*n + j*c) + j*c == P
-# This is a of type quadratic eq. A m^2 + B m + C == 0
-# Here A = 2*(ks_1 + ks_2 ... ks_n), B = (c*n + 2*n + j*c) , C = j*c - P
-
 def fill_as_req(img, size_mul=16):
 	h, w = img.shape[-2:]
 	h_new = ceil(h / size_mul) * size_mul
@@ -72,12 +55,9 @@ class Encoder(nn.Module):
 		AppLog.info(f'Encoder channels {channels}, depths {depths}, mid_chs {mid_chs}, groups {layer_group}')
 		dropout = [0.1 + 0.4 * i / (layers - 1) for i in range(layers)]
 
-		# self.downsample_input = nn.PixelUnshuffle(2)
 		all_layers = []
 		for l_i in range(layers):
-			# total_calc = ch_in * mid_ch_calc + (s * (s + 1) / 2) * 9 * mid_ch_calc ** 2 + (s + 1) * mid_ch_calc *
-			# ch_out
-			# groups = max(round((total_calc / param_compute) ** 0.5), 1)
+
 			if l_i == 0:
 				dense_layer = SimpleDenseLayer(channels[l_i], mid_chs[l_i], channels[l_i + 1], depths[l_i],
 				                               layer_group[l_i], dropped_out=dropout[l_i])
@@ -175,10 +155,16 @@ class ImageCodec(nn.Module):
 		self.encoder = Encoder(enc_chin, latent_channels, layers=enc_layers,out_groups=16, min_depth=12, max_depth=18)
 		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers, in_group=16, min_depth=10, max_depth=16,
 		                       min_mid_ch=12)
+		self.mean = torch.tensor([0.5, 0.5, 0.5])
+		self.std = torch.tensor([0.5, 0.5, 0.5])
 
+	def set_mean_std(self, mean, std):
+		self.mean = mean
+		self.std = std
 
 	def forward(self, x, h=-1, w=-1):
 		if h < 16 or w < 16:
+			x = (x - self.mean) / self.std
 			return self.encoder(x)
 		else:
 			return self.decoder(x, h, w)
