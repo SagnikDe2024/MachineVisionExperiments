@@ -66,7 +66,7 @@ def get_data(batch_size=16, minsize=320):
 class TrainEncoderAndDecoder:
 	def __init__(self, model, optimizer, train_device, cycle_sch, save_training_fn, starting_epoch, ending_epoch,
 	             vloss=float('inf'), scaler=None):
-		loss_fn = [SmoothL1Loss(beta=0.5), SaturationLoss()]
+		loss_fn = [SmoothL1Loss(beta=0.5)]
 		self.random = Random()
 		self.device = train_device
 		self.model_orig = model
@@ -105,9 +105,9 @@ class TrainEncoderAndDecoder:
 		return combined_mean, combined_std
 
 	def get_loss_by_inference(self, data, partial_latent_decode_mask):
-		prep = prepare_encoder_data(data)
+		m = 1
 		with torch.autocast(device_type=self.device):
-			encoded, h, w = self.model(prep)
+			encoded, h, w = self.model(data)
 			decoded = self.model(encoded, h, w)
 			result = scale_decoder_data(decoded)
 
@@ -115,33 +115,21 @@ class TrainEncoderAndDecoder:
 			partial_latent_rest = (1 - partial_latent_decode_mask) * encoded
 
 			partial_decoded = self.model(partial_latent_decode, h, w)
-			rest_decoded = decoded - partial_decoded
-			encoded_latent, _, _ = self.model(rest_decoded)
-			m = 1
+			rest_decoded = self.model(partial_latent_rest, h, w)
+
+			additive_decoded = partial_decoded + rest_decoded
+
 			ratio = torch.mean(partial_latent_decode_mask)
 			partial_result = scale_decoder_data(partial_decoded)
 			partial_res_smooth = (self.loss_func[0](partial_result, data)) * ratio
-			partial_res_sat = (self.loss_func[1](partial_result, data)) * ratio
+
 			total_smooth = self.loss_func[0](result, data)
-			total_sat = self.loss_func[1](result, data)
 
-			smooth_loss = ((partial_res_smooth + total_smooth) * 1.5) * m
-			sat_loss = ((partial_res_sat + total_sat) * 0.5) * m
-			round_trip_loss = ((self.loss_func[0](encoded_latent, partial_latent_rest)) * 1) * m
+			smooth_loss = (partial_res_smooth + total_smooth) * m
+			additive_result = scale_decoder_data(additive_decoded)
+			additive_loss = self.loss_func[0](additive_result, data)
 
-		return smooth_loss, sat_loss, round_trip_loss
-
-	def get_loss_validation(self, data, ratio):
-		prep = prepare_encoder_data(data)
-		with torch.autocast(device_type=self.device):
-			encoded, h, w = self.model(prep)
-			c = encoded.shape[-3]
-			decode_channel_ratio = round(c * ratio)
-			partial_latent_decode_mask = torch.zeros_like(encoded, device=self.device)
-			partial_latent_decode_mask[:, :decode_channel_ratio, :, :] = 1
-			partial_latent_decode = encoded * partial_latent_decode_mask
-			partial_decoded = self.model(partial_latent_decode, h, w)
-			result = scale_decoder_data(partial_decoded)
+		return smooth_loss, additive_loss
 
 			smooth_loss = self.loss_func[0](result, data)
 			sat_loss = self.loss_func[1](result, data)
