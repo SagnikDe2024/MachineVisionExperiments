@@ -179,6 +179,10 @@ class TrainEncoderAndDecoder:
 			ratio = (1 - (batch_idx / batches)) * 0.90 + 0.09
 			self.optimizer.zero_grad(set_to_none=True)
 			partial_latent_decode_mask, data = self.common_train_validate_ratio(ratio, data)
+			batch_mean = torch.mean(data, dim=(0, 2, 3))
+			batch_std = torch.std(data, dim=(0, 2, 3))
+			model_mean, model_std = self.add_mean_std(batch_mean, batch_std)
+			self.model.set_mean_std(model_mean, model_std)
 			smooth_loss, additive_loss = self.train_compilable(data, partial_latent_decode_mask)
 			loss = smooth_loss + additive_loss
 			scaled_loss = self.scaler.scale(loss)
