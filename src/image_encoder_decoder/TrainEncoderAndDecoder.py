@@ -377,8 +377,8 @@ def test_and_show(size):
 			decode_channel_ratio = round(c * 4 / 4)
 			partial_latent_decode_mask = torch.zeros(dim, device=image.device)
 			partial_latent_decode_mask[:, :decode_channel_ratio, :, :] = 1
-			prep = prepare_encoder_data(image)
-			lat, h, w = codec_model(prep)
+
+			lat, h, w = codec_model(image)
 			lat = lat * partial_latent_decode_mask
 			res = codec_model(lat, h, w)
 			res = torch.clamp(scale_decoder_data(res), 0, 1)
