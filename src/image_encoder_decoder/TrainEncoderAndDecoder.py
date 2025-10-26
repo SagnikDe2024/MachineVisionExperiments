@@ -21,8 +21,7 @@ from torchvision.transforms.v2 import ColorJitter, Compose, FiveCrop, RandomCrop
 	RandomRotation, RandomVerticalFlip, ToDtype
 
 from src.common.common_utils import AppLog, acquire_image
-from src.image_encoder_decoder.image_codec import ImageCodec, prepare_encoder_data, \
-	scale_decoder_data
+from src.image_encoder_decoder.image_codec import ImageCodec, scale_decoder_data
 
 
 class ImageFolderDataset(Dataset):
@@ -169,16 +168,15 @@ class TrainEncoderAndDecoder:
 
 		t_loss = {
 			'smooth_loss': 0.0,
-			'sat_loss': 0.0,
-			'round_trip_loss': 0.0
+			'additive_loss': 0.0
 		}
 		batches = len(train_loader)
 		for batch_idx, data in enumerate(train_loader):
 			ratio = (1 - (batch_idx / batches)) * 0.90 + 0.09
 			self.optimizer.zero_grad(set_to_none=True)
 			partial_latent_decode_mask, data = self.common_train_validate_ratio(ratio, data)
-			data, smooth_loss, sat_loss, round_trip_loss = self.train_compilable(data, partial_latent_decode_mask)
-			loss = (smooth_loss + sat_loss) + round_trip_loss
+			smooth_loss, additive_loss = self.train_compilable(data, partial_latent_decode_mask)
+			loss = smooth_loss + additive_loss
 			scaled_loss = self.scaler.scale(loss)
 
 			pics_seen += data.shape[0]
@@ -186,8 +184,7 @@ class TrainEncoderAndDecoder:
 			self.scaler.step(self.optimizer)
 			self.scaler.update()
 			t_loss['smooth_loss'] += smooth_loss.item()
-			t_loss['sat_loss'] += sat_loss.item()
-			t_loss['round_trip_loss'] += round_trip_loss.item()
+			t_loss['additive_loss'] += additive_loss.item()
 			self.scheduler.step()
 			if not self.trained_one_batch:
 				self.trained_one_batch = True
@@ -195,16 +192,14 @@ class TrainEncoderAndDecoder:
 
 		t_loss['smooth_loss'] /= batches
 		t_loss['sat_loss'] /= batches
-		t_loss['round_trip_loss'] /= batches
+		t_loss['additive_loss'] /= batches
 		return t_loss, pics_seen
 
 	def evaluate(self, val_loader):
 		self.model.eval()
 		vloss = {
 			'smooth_loss': 0.0,
-			'sat_loss': 0.0,
-			'round_trip_loss': 0.0,
-			'smooth_loss_10p': 0.0
+			'additive_loss': 0.0,
 		}
 		pics_seen = 0
 
@@ -215,18 +210,15 @@ class TrainEncoderAndDecoder:
 				s, n, c, h, w = stacked.shape
 				reshaped = torch.reshape(stacked, (s * n, c, h, w))
 				partial_latent_decode_mask, reshaped = self.common_train_validate_ratio(ratio, reshaped)
-				smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped = self.validate_compiled(reshaped, partial_latent_decode_mask)
-				vloss['smooth_loss'] += smooth_loss1.item()
-				vloss['sat_loss'] += sat_loss1.item()
-				vloss['round_trip_loss'] += round_trip_loss1.item()
-				vloss['smooth_loss_10p'] += smooth_loss2.item()
+				smooth_loss, additive_loss = self.validate_compiled(reshaped, partial_latent_decode_mask)
+				vloss['smooth_loss'] += smooth_loss.item()
+				vloss['additive_loss'] += additive_loss.item()
 
 				pics_seen += reshaped.shape[0]
 		batches = len(val_loader)
 		vloss['smooth_loss'] /= batches
-		vloss['sat_loss'] /= batches
-		vloss['round_trip_loss'] /= batches
-		vloss['smooth_loss_10p'] /= batches
+
+		vloss['additive_loss'] /= batches
 
 		return vloss, pics_seen
 
@@ -240,7 +232,7 @@ class TrainEncoderAndDecoder:
 				f'Epoch {self.current_epoch + 1}: Training loss = {train_loss} ({p_t} samples), Validation Loss = '
 				f'{val_loss_dic}  ({p_v} samples),  '
 				f'lr = {(self.scheduler.get_last_lr()[0]):.3e} ')
-			val_loss = val_loss_dic['smooth_loss'] + val_loss_dic['sat_loss'] + val_loss_dic['round_trip_loss']
+			val_loss = val_loss_dic['smooth_loss'] + val_loss_dic['additive_loss']
 			if val_loss < self.best_vloss:
 				self.best_vloss = val_loss
 				self.save_training_fn(self.model_orig, self.optimizer, self.current_epoch + 1, val_loss,
