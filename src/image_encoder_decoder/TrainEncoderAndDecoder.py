@@ -141,10 +141,6 @@ class TrainEncoderAndDecoder:
 	def train_compilable(self, data: torch.Tensor, partial_latent_decode_mask: torch.Tensor) -> tuple[
 		torch.Tensor, torch.Tensor]:
 		data = self.train_transform(data)
-		batch_mean = torch.mean(data, dim=(0, 2, 3))
-		batch_std = torch.std(data, dim=(0, 2, 3))
-		model_mean, model_std = self.add_mean_std(batch_mean, batch_std)
-		self.model.set_mean_std(model_mean, model_std)
 		smooth_loss, additive_loss = self.get_loss_by_inference(data, partial_latent_decode_mask)
 		return smooth_loss, additive_loss
 
@@ -203,7 +199,6 @@ class TrainEncoderAndDecoder:
 				AppLog.info(f'Training loss: {t_loss}, batch: {batch_idx + 1}')
 
 		t_loss['smooth_loss'] /= batches
-		t_loss['sat_loss'] /= batches
 		t_loss['additive_loss'] /= batches
 		return t_loss, pics_seen
 
@@ -229,7 +224,6 @@ class TrainEncoderAndDecoder:
 				pics_seen += reshaped.shape[0]
 		batches = len(val_loader)
 		vloss['smooth_loss'] /= batches
-
 		vloss['additive_loss'] /= batches
 
 		return vloss, pics_seen
