@@ -131,30 +131,23 @@ class TrainEncoderAndDecoder:
 
 		return smooth_loss, additive_loss
 
-			smooth_loss = self.loss_func[0](result, data)
-			sat_loss = self.loss_func[1](result, data)
-
-		return smooth_loss + sat_loss
 
 	@torch.compile(mode='max-autotune')
 	def train_compilable(self, data: torch.Tensor, partial_latent_decode_mask: torch.Tensor) -> tuple[
-		Any, Any, Any, Any]:
+		torch.Tensor, torch.Tensor]:
 		data = self.train_transform(data)
-		smooth_loss, sat_loss, round_trip_loss = self.get_loss_by_inference(data, partial_latent_decode_mask)
-		return data, smooth_loss, sat_loss, round_trip_loss
 		batch_mean = torch.mean(data, dim=(0, 2, 3))
 		batch_std = torch.std(data, dim=(0, 2, 3))
 		model_mean, model_std = self.add_mean_std(batch_mean, batch_std)
 		self.model.set_mean_std(model_mean, model_std)
+		smooth_loss, additive_loss = self.get_loss_by_inference(data, partial_latent_decode_mask)
+		return smooth_loss, additive_loss
 
 	@torch.compile(mode='max-autotune')
 	def validate_compiled(self, reshaped: torch.Tensor, partial_latent_decode_mask) -> tuple[
-		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-
-		smooth_loss1, sat_loss1, round_trip_loss1 = self.get_loss_by_inference(reshaped, partial_latent_decode_mask)
-		# smooth_loss2 = self.get_loss_validation(reshaped, self.ratio_val)
-		smooth_loss2 = torch.tensor(-1)
-		return smooth_loss1, sat_loss1, round_trip_loss1, smooth_loss2, reshaped
+		torch.Tensor, torch.Tensor]:
+		smooth_loss, additive_loss = self.get_loss_by_inference(reshaped, partial_latent_decode_mask)
+		return smooth_loss, additive_loss
 
 	def common_train_validate_ratio(self, ratio: float,
 	                                data: Tensor) -> tuple[Tensor, Tensor]:
