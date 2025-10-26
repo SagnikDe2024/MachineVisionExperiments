@@ -201,6 +201,33 @@ def calcParamsForMid(in_ch, out_ch, kernek_stack: list[list[int]], param_max):
 	m = (-B + (B ** 2 - 4 * A * C) ** 0.5) / (2 * A)
 	return m
 
+class ImageCodecNew(nn.Module):
+	def __init__(self, enc_chin, latent_channels, dec_chout, enc_layers=5, dec_layers=5):
+		super().__init__()
+
+		self.encoder = Encoder(enc_chin, latent_channels, layers=enc_layers,out_groups=16, min_depth=12, max_depth=18)
+		self.decoder = Decoder(latent_channels, dec_chout, layers=dec_layers, in_group=16, min_depth=10, max_depth=16,
+		                       min_mid_ch=12)
+		self.register_buffer('mean', torch.tensor([0.5, 0.5, 0.5]))
+		self.register_buffer('std', torch.tensor([0.5, 0.5, 0.5]))
+
+	def set_mean_std(self, mean, std):
+		self.mean = mean
+		self.std = std
+
+	def normalize(self, x):
+		return (x - self.mean) / self.std
+
+	def denormalize(self, x):
+		return x * self.std.view(1,3,1,1) + self.mean.view(1,3,1,1)
+
+	def forward(self, x, h=-1, w=-1):
+		if h < 16 or w < 16:
+			x = (x - self.mean.view(1,3,1,1)) / self.std.view(1,3,1,1)
+			return self.encoder(x)
+		else:
+			return self.decoder(x, h, w)
+
 
 if __name__ == '__main__':
 	# in_ch = 161
