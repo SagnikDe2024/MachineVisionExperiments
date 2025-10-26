@@ -137,9 +137,10 @@ class Decoder(nn.Module):
 
 		self.last_compress = nn.LazyConv2d(out_channels=3, kernel_size=1, padding=0)
 
-		self.last_activation = nn.Tanh()
+		# self.last_activation = nn.Tanh()
+		# self.last_activation = nn.Tanh()
 		all_layers.append(self.last_compress)
-		all_layers.append(self.last_activation)
+		# all_layers.append(self.last_activation)
 		self.decoder_layers = nn.Sequential(*all_layers)
 
 	def forward(self, latent_z, h, w):
