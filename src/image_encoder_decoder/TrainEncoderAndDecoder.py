@@ -7,6 +7,7 @@ from random import Random
 
 import pandas as pd
 import torch
+import torchjd
 import torchvision
 from PIL import Image
 from diskcache import Cache
@@ -14,6 +15,7 @@ from torch import GradScaler, Tensor
 from torch.nn import SmoothL1Loss
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader, Dataset
+from torchjd.aggregation import UPGrad
 from torchvision.io import decode_image
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import resize
@@ -184,11 +186,13 @@ class TrainEncoderAndDecoder:
 			model_mean, model_std = self.add_mean_std(batch_mean, batch_std)
 			self.model.set_mean_std(model_mean, model_std)
 			smooth_loss, additive_loss = self.train_compilable(data, partial_latent_decode_mask)
-			loss = smooth_loss + additive_loss
-			scaled_loss = self.scaler.scale(loss)
+			# loss = smooth_loss + additive_loss
+			[scaled_smooth, scaled_additive] = self.scaler.scale([smooth_loss, additive_loss])
+			# scaled_loss = self.scaler.scale(loss)
 
 			pics_seen += data.shape[0]
-			scaled_loss.backward()
+			torchjd.backward([scaled_smooth, scaled_additive], self.aggregator)
+
 			self.scaler.step(self.optimizer)
 			self.scaler.update()
 			t_loss['smooth_loss'] += smooth_loss.item()
