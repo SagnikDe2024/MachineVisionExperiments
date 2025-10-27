@@ -7,15 +7,12 @@ from random import Random
 
 import pandas as pd
 import torch
-import torchjd
 import torchvision
 from PIL import Image
 from diskcache import Cache
 from torch import GradScaler, Tensor
-from torch.nn import SmoothL1Loss
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader, Dataset
-from torchjd.aggregation import UPGrad
 from torchvision.io import decode_image
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms.functional import resize
@@ -23,7 +20,8 @@ from torchvision.transforms.v2 import ColorJitter, Compose, FiveCrop, RandomCrop
 	RandomRotation, RandomVerticalFlip, ToDtype
 
 from src.common.common_utils import AppLog, acquire_image
-from src.image_encoder_decoder.image_codec import ImageCodec, scale_decoder_data
+from src.encoder_decoder.image_reconstruction_loss import PseudoHuberLoss, SaturationLoss
+from src.image_encoder_decoder.image_codec import ImageCodecNew
 
 
 class ImageFolderDataset(Dataset):
