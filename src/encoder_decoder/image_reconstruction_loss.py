@@ -7,9 +7,6 @@ from torch.nn.functional import conv2d, interpolate, mse_loss
 from src.common.common_utils import AppLog, acquire_image
 
 
-# from torchmetrics.functional.image import visual_information_fidelity
-
-
 def get_gradient_weights():
 	diffxf1 = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
 	diffxd1 = torch.tensor([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
