@@ -396,6 +396,7 @@ def test_and_show(size):
 
 
 if __name__ == '__main__':
+	torch.backends.cuda.matmul.allow_tf32 = True
 	parser = argparse.ArgumentParser(description='Train encoder and decoder model')
 	parser.add_argument('--lr-min', type=float, default=-1, help='Min learning rate for training')
 	parser.add_argument('--lr-max', type=float, default=-1, help='Max learning rate for training')
