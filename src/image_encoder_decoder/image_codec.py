@@ -5,8 +5,8 @@ from torch import nn
 from torchinfo import summary
 from torchvision.transforms.v2.functional import center_crop, pad
 
-from src.common.image_delentropy import SimpleDenseLayer
 from src.common.common_utils import AppLog
+from src.common.image_delentropy import SimpleDenseLayer
 
 
 def fill_as_req(img, size_mul=16):
