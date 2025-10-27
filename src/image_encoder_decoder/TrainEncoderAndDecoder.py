@@ -67,7 +67,7 @@ def get_data(batch_size=16, minsize=320):
 class TrainEncoderAndDecoder:
 	def __init__(self, model, optimizer, train_device, cycle_sch, save_training_fn, starting_epoch, ending_epoch,
 	             vloss=float('inf'), scaler=None):
-		loss_fn = [SmoothL1Loss(beta=0.5)]
+		loss_fn = [PseudoHuberLoss(delta=1.0), SaturationLoss()]
 		self.random = Random()
 		self.device = train_device
 		self.model_orig = model
@@ -113,11 +113,11 @@ class TrainEncoderAndDecoder:
 		return combined_mean, combined_std
 
 	def get_loss_by_inference(self, data, partial_latent_decode_mask):
-		m = 1
+
 		with torch.autocast(device_type=self.device):
 			encoded, h, w = self.model(data)
 			decoded = self.model(encoded, h, w)
-			result = scale_decoder_data(decoded)
+			result = self.model.denormalize(decoded)
 
 			partial_latent_decode = encoded * partial_latent_decode_mask
 			partial_latent_rest = (1 - partial_latent_decode_mask) * encoded
@@ -128,16 +128,20 @@ class TrainEncoderAndDecoder:
 			additive_decoded = partial_decoded + rest_decoded
 
 			ratio = torch.mean(partial_latent_decode_mask)
-			partial_result = scale_decoder_data(partial_decoded)
+			partial_result = self.model.denormalize(partial_decoded)
 			partial_res_smooth = (self.loss_func[0](partial_result, data)) * ratio
+			partial_res_sat = (self.loss_func[1](partial_result, data)) * ratio
 
 			total_smooth = self.loss_func[0](result, data)
+			total_sat = self.loss_func[1](result, data)
 
-			smooth_loss = (partial_res_smooth + total_smooth) * m
-			additive_result = scale_decoder_data(additive_decoded)
+			smooth_loss = (partial_res_smooth + total_smooth)
+			sat_loss = (partial_res_sat + total_sat) * 0.75
+			additive_result = self.model.denormalize(additive_decoded)
 			additive_loss = self.loss_func[0](additive_result, data)
+			additive_loss_sat = (self.loss_func[1](additive_result, data)) * 0
 
-		return smooth_loss, additive_loss
+		return smooth_loss, sat_loss, additive_loss, additive_loss_sat
 
 
 	@torch.compile(mode='max-autotune')
