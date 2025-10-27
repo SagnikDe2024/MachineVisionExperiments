@@ -118,29 +118,35 @@ def get_saturation(image):
 	inv_sat = torch.nan_to_num(min_max.min / min_max.max, nan=1, posinf=1, neginf=1)
 	return 1 - inv_sat
 
+
+def get_saturated_image(image):
+	lum = torch.tensor([0.299, 0.587, 0.114], device=image.device)
+	lumv = lum.view(1, 3, 1, 1)
+
+	# Ensure that the minimum of the image is greater than zero
+	min_image_inf = torch.amin(image, dim=[-3, -2, -1], keepdim=True)
+	image = image - min_image_inf
+	sum_1 = torch.sum(image * lumv, dim=-3, keepdim=True)
+
+	min_i = torch.min(image, dim=-3, keepdim=True)
+	# Make minimums zero
+	image_with_min_zero = image - min_i.values
+	# sum_2 = torch.sum(image_with_min_zero, dim=-3, keepdim=True)
+	sum_2 = torch.sum(image_with_min_zero * lumv, dim=-3, keepdim=True)
+	new_img = (sum_1 / (sum_2 + 1e-6)) * image_with_min_zero
+
+	return new_img
+
+
 class SaturationLoss(nn.Module):
 	def __init__(self):
 		super().__init__()
-		self.loss = nn.SmoothL1Loss(beta=0.75)
+		self.loss = nn.L1Loss()
 
 	def forward(self, inferred_image, target_image):
-		min_i = torch.min(inferred_image, dim=1, keepdim=True)
-		max_i = torch.max(inferred_image, dim=1, keepdim=True)
-		min_t = torch.min(target_image, dim=1, keepdim=True)
-		max_t = torch.max(target_image, dim=1, keepdim=True)
-
-		sat = 1 - min_i.values / (max_i.values + 1e-6)
-		sat_t = 1 - min_t.values / (max_t.values + 1e-6)
-		return self.loss(sat, sat_t)
-
-def sat_loss(inferred_image, target_image):
-	min_i = torch.min(inferred_image, dim=1)
-	max_i = torch.max(inferred_image, dim=1)
-	min_t = torch.min(target_image, dim=1)
-	max_t = torch.max(target_image, dim=1)
-	sat = 1 - min_i.values / (max_i.values + 1e-5)
-	sat_t = 1 - min_t.values / (max_t.values + 1e-5)
-	return torch.pow(torch.mean(torch.pow(sat - sat_t, 2)),0.5)
+		inf_sat = get_saturated_image(inferred_image)
+		tar_sat = get_saturated_image(target_image)
+		return self.loss(inf_sat, tar_sat)
 
 
 class MultiscalePerceptualLoss(nn.Module):
