@@ -180,7 +180,9 @@ class TrainEncoderAndDecoder:
 
 		t_loss = {
 			'smooth_loss': 0.0,
-			'additive_loss': 0.0
+			'sat_loss': 0.0,
+			'additive_loss': 0.0,
+			'additive_sat_loss': 0.0,
 		}
 		batches = len(train_loader)
 		for batch_idx, data in enumerate(train_loader):
