@@ -28,6 +28,21 @@ def get_gradient_weights():
 	gradient_convs = [diffxf, diffyf, diffxd, diffyd]
 	return gradient_convs
 
+def pseudo_huber_loss(x, y, delta=1.0):
+	diff = x - y
+	vec_output = delta**2 * (torch.sqrt(1 + diff**2 / delta**2) - 1)
+	return torch.mean(vec_output)
+
+class PseudoHuberLoss(nn.Module):
+	def __init__(self, delta=1.0):
+		super().__init__()
+		self.delta = delta
+		norm = pseudo_huber_loss(torch.Tensor([1.0]), torch.Tensor([0.0]), delta)
+		self.norm = norm.item()
+
+	def forward(self, x, y):
+		return pseudo_huber_loss(x, y, self.delta)/self.norm
+
 
 class MultiScaleGradientLoss(nn.Module):
 	def __init__(self, device_used, max_downsample=8, steps_to_downsample=4):
