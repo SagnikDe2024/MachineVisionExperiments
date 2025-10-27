@@ -88,7 +88,7 @@ class TrainEncoderAndDecoder:
 		self.stds = None
 		self.means = None
 
-	def add_mean_std(self, mean, std):
+	# self.aggregator = torch.compile(UPGrad(),mode='max-autotune')
 
 	def add_mean_std_to_model(self, mean, std):
 		if self.means is None:
@@ -142,16 +142,21 @@ class TrainEncoderAndDecoder:
 
 	@torch.compile(mode='max-autotune')
 	def train_compilable(self, data: torch.Tensor, partial_latent_decode_mask: torch.Tensor) -> tuple[
-		torch.Tensor, torch.Tensor]:
+		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 		data = self.train_transform(data)
-		smooth_loss, additive_loss = self.get_loss_by_inference(data, partial_latent_decode_mask)
-		return smooth_loss, additive_loss
+		smooth_loss, sat_loss, additive_loss, additive_loss_sat = self.get_loss_by_inference(data,
+		                                                                                     partial_latent_decode_mask)
+		# scaled_losses =  self.scaler.scale(
+		# 	[smooth_loss, sat_loss, additive_loss, additive_loss_sat])
+		# torchjd.backward(scaled_losses , self.aggregator)
+		return smooth_loss, sat_loss, additive_loss, additive_loss_sat
 
 	@torch.compile(mode='max-autotune')
 	def validate_compiled(self, reshaped: torch.Tensor, partial_latent_decode_mask) -> tuple[
-		torch.Tensor, torch.Tensor]:
-		smooth_loss, additive_loss = self.get_loss_by_inference(reshaped, partial_latent_decode_mask)
-		return smooth_loss, additive_loss
+		torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+		smooth_loss, sat_loss, additive_loss, additive_loss_sat = self.get_loss_by_inference(reshaped,
+		                                                                                     partial_latent_decode_mask)
+		return smooth_loss, sat_loss, additive_loss, additive_loss_sat
 
 	def common_train_validate_ratio(self, ratio: float,
 	                                data: Tensor) -> tuple[Tensor, Tensor]:
@@ -184,13 +189,14 @@ class TrainEncoderAndDecoder:
 			batch_std = torch.std(data, dim=(0, 2, 3))
 			model_mean, model_std = self.add_mean_std(batch_mean, batch_std)
 			self.model.set_mean_std(model_mean, model_std)
-			smooth_loss, additive_loss = self.train_compilable(data, partial_latent_decode_mask)
-			# loss = smooth_loss + additive_loss
-			[scaled_smooth, scaled_additive] = self.scaler.scale([smooth_loss, additive_loss])
-			# scaled_loss = self.scaler.scale(loss)
+			smooth_loss, sat_loss, additive_loss, additive_loss_sat = self.train_compilable(data,
+			                                                                                partial_latent_decode_mask)
+
+			loss = smooth_loss + sat_loss + additive_loss + additive_loss_sat
+			scaled_loss = self.scaler.scale(loss)
+			scaled_loss.backward()
 
 			pics_seen += data.shape[0]
-			torchjd.backward([scaled_smooth, scaled_additive], self.aggregator)
 
 			self.scaler.step(self.optimizer)
 			self.scaler.update()
