@@ -87,24 +87,27 @@ class TrainEncoderAndDecoder:
 		self.train_transform = Compose([RandomVerticalFlip(0.5), RandomHorizontalFlip(0.5)])
 		self.stds = None
 		self.means = None
-		self.aggregator = UPGrad()
 
 	def add_mean_std(self, mean, std):
+
+	def add_mean_std_to_model(self, mean, std):
 		if self.means is None:
 			self.means = mean.unsqueeze(0)
 			self.stds = std.unsqueeze(0)
-			return mean, std
-		mean_un = mean.unsqueeze(0)
-		std_un = std.unsqueeze(0)
+		else:
+			mean_un = mean.unsqueeze(0)
+			std_un = std.unsqueeze(0)
 
-		self.means = torch.cat((self.means, mean_un), dim=0)
-		self.stds = torch.cat((self.stds, std_un), dim=0)
+			self.means = torch.cat((self.means, mean_un), dim=0)
+			self.stds = torch.cat((self.stds, std_un), dim=0)
+
+	def get_mean_std(self):
+		if self.means.shape[0] == 1:
+			return self.means[0], self.stds[0]
 
 		combined_mean = torch.mean(self.means, dim=0)
-
 		mean_of_variances = torch.mean(self.stds ** 2, dim=0)
 		variances_of_means = torch.var(self.means, dim=0)
-
 		combined_std = torch.sqrt(mean_of_variances + variances_of_means)
 
 		return combined_mean, combined_std
