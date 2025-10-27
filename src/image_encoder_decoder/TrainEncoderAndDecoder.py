@@ -412,7 +412,7 @@ def test_and_show(size):
 			lat, h, w = codec_model(image)
 			lat = lat * partial_latent_decode_mask
 			res = codec_model(lat, h, w)
-			res = torch.clamp(scale_decoder_data(res), 0, 1)
+			res = torch.clamp(codec_model.denormalize(res), 0, 1)
 
 			image_pil = torchvision.transforms.ToPILImage()(image.squeeze(0))
 			res_pil = torchvision.transforms.ToPILImage()(res.squeeze(0))
